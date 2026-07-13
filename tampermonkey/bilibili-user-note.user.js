@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili 用户备注助手
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
+// @version      1.2.0
 // @description  按住 Shift 右键用户名即可添加备注，支持多标签和中国风配色
 // @author       糖心月
 // @copyright    2026, 糖心月 (https://github.com/1710368392)
@@ -49,10 +49,23 @@
     const STORAGE_KEY = 'bilibili_user_notes_v2';
     const RECENT_COLORS_KEY = 'bilibili_notes_recent_colors';
     const PROCESSED_ATTR = 'data-bn-processed';
+    const TAG_MAX_LENGTH = 20;
 
     // 内存缓存，避免每次读写都序列化/反序列化
     let _notesCache = null;
     let _notesLoaded = false;
+
+    // ==================== XSS 防护 ====================
+    const _escapeDiv = document.createElement('div');
+    function escapeHtml(str) {
+        if (!str) return '';
+        _escapeDiv.textContent = str;
+        return _escapeDiv.innerHTML;
+    }
+    function safeAttr(str) {
+        if (!str) return '';
+        return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
 
     const PRESET_COLORS = [
         { name: '朱砂', value: '#CF000F' },
@@ -253,10 +266,21 @@
             resize: none; overflow-y: auto; line-height: 1.4;
             font-family: inherit;
         }
-        }
         .bn-tag-input:focus { border-color: #00a1d6; box-shadow: 0 0 0 3px rgba(0,161,214,0.1); }
         .bn-tag-input::placeholder { color: #c9ccd0; }
+        .bn-tag-counter {
+            font-size: 11px; color: #9499a0; white-space: nowrap; flex-shrink: 0;
+            padding-top: 8px;
+        }
+        .bn-tag-counter.warn { color: #f45d5d; }
         .bn-tag-hint { font-size: 12px; color: #9499a0; margin-top: 8px; }
+        .bn-template-btn {
+            display: inline-flex; align-items: center; padding: 2px 8px; height: 20px;
+            font-size: 11px; border: 1px solid #e3e5e7; border-radius: 10px;
+            background: #fff; color: #61666d; cursor: pointer;
+            transition: all 0.15s; white-space: nowrap; margin-left: 4px;
+        }
+        .bn-template-btn:hover { border-color: #00a1d6; color: #00a1d6; background: rgba(0,161,214,0.05); }
         .bn-tag-hint kbd {
             display: inline-flex; align-items: center; justify-content: center;
             min-width: 20px; height: 18px; padding: 0 4px;
@@ -270,6 +294,7 @@
             background: #fff; border-radius: 12px;
             box-shadow: 0 8px 24px rgba(0,0,0,0.12); padding: 14px; z-index: 100; width: 220px;
             animation: bn-popup-in 0.2s ease;
+            max-height: 360px; overflow-y: auto;
         }
         @keyframes bn-popup-in { from { transform: translateY(-8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
         @keyframes bn-toast-in { from { transform: translateX(-50%) translateY(-10px); opacity: 0; } to { transform: translateX(-50%) translateY(0); opacity: 1; } }
@@ -308,18 +333,22 @@
         /* 管理列表 */
         .bn-manage-list { display: flex; flex-direction: column; gap: 10px; max-height: 50vh; overflow-y: auto; }
         .bn-manage-item {
-            display: flex; align-items: center; gap: 12px; padding: 12px;
+            display: flex; flex-direction: column; gap: 8px; padding: 12px;
             background: linear-gradient(135deg, #f8f9fa, #fff); border-radius: 10px;
             border: 1px solid #f1f2f3; transition: all 0.2s;
         }
         .bn-manage-item:hover { border-color: #e3e5e7; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+        .bn-manage-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
         .bn-manage-info { flex: 1; min-width: 0; }
         .bn-manage-name { font-size: 13px; color: #18191c; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
         .bn-manage-uid { font-size: 11px; color: #9499a0; }
-        .bn-manage-note { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        .bn-link { color: inherit; text-decoration: none; transition: color 0.15s; }
+        .bn-link:hover { color: #00a1d6; }
+        .bn-manage-note { display: flex; flex-direction: column; gap: 6px; }
+        .bn-manage-tags { display: flex; align-items: flex-start; gap: 6px; flex-wrap: wrap; }
         .bn-manage-tag { padding: 2px 8px; height: 20px; font-size: 11px; line-height: 16px; color: #fff; border-radius: 10px; font-weight: 500; }
         .bn-manage-text { font-size: 12px; color: #61666d; padding-left: 6px; border-left: 1px solid #e3e5e7; }
-        .bn-manage-actions { display: flex; gap: 6px; }
+        .bn-manage-actions { display: flex; gap: 6px; flex-shrink: 0; }
         .bn-manage-btn {
             width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
             border: 1.5px solid #e3e5e7; border-radius: 8px; background: #fff;
@@ -336,6 +365,65 @@
             outline: none; box-sizing: border-box; transition: all 0.2s;
         }
         .bn-search-input:focus { border-color: #00a1d6; box-shadow: 0 0 0 3px rgba(0,161,214,0.1); }
+
+        /* ==================== 暗色模式 ==================== */
+        @media (prefers-color-scheme: dark) {
+            .bili-note-text { color: #999; border-left-color: #444; }
+            .bili-note-tooltip-fixed,
+            .bili-note-wrapper .bili-note-tooltip {
+                background: rgba(34, 34, 38, 0.92); color: #e1e1e1;
+                box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(60, 60, 60, 0.6);
+            }
+            .bili-note-tooltip-fixed::before,
+            .bili-note-wrapper .bili-note-tooltip::before {
+                background: rgba(34, 34, 38, 0.92);
+            }
+            .bili-note-tooltip-fixed .bn-tt-text,
+            .bili-note-tooltip .bn-tt-text { color: #e1e1e1; }
+            .bili-note-tooltip-fixed .bn-tt-sep,
+            .bili-note-tooltip .bn-tt-sep { color: #666; }
+
+            .bili-note-modal { background: #222226; }
+            .bn-header { background: linear-gradient(135deg, #2a2a2e, #222226); }
+            .bn-title { color: #e1e1e1; }
+            .bn-close { color: #999; }
+            .bn-close:hover { background: #333; color: #e1e1e1; }
+            .bn-label { color: #bbb; }
+            .bn-input {
+                background: #2a2a2e; color: #e1e1e1; border-color: #444;
+            }
+            .bn-input:focus { border-color: #00a1d6; box-shadow: 0 0 0 3px rgba(0,161,214,0.15); }
+            .bn-input[readonly] { background: #2a2a2e; color: #999; border-color: #555; }
+            .bn-tags-box { background: #2a2a2e; border-color: #444; }
+            .bn-tags-box:empty::before { color: #555; }
+            .bn-tag-input {
+                background: #2a2a2e; color: #e1e1e1; border-color: #444;
+            }
+            .bn-tag-input:focus { border-color: #00a1d6; }
+            .bn-tag-input::placeholder { color: #666; }
+            .bn-tag-hint { color: #777; }
+            .bn-tag-hint kbd { background: #333; border-color: #444; color: #aaa; }
+            .bn-color-dot { border-color: #333; box-shadow: 0 0 0 1px #444; }
+            .bn-color-popup { background: #2a2a2e; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+            .bn-color-title { color: #aaa; }
+            .bn-color-item.active { border-color: #e1e1e1; }
+            .bn-color-item::after { background: #333; color: #ccc; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+            .bn-btn-default { background: #2a2a2e; color: #bbb; border-color: #444; }
+            .bn-btn-default:hover { border-color: #00a1d6; color: #00a1d6; }
+            .bn-btn-danger { background: #2a2a2e; color: #f45d5d; border-color: #5a2a2a; }
+            .bn-btn-danger:hover { background: #3a1a1a; border-color: #f45d5d; }
+            .bn-manage-item { background: linear-gradient(135deg, #2a2a2e, #222226); border-color: #333; }
+            .bn-manage-item:hover { border-color: #444; }
+            .bn-manage-name { color: #e1e1e1; }
+            .bn-manage-text { color: #aaa; border-left-color: #444; }
+            .bn-manage-btn { background: #2a2a2e; border-color: #444; color: #aaa; }
+            .bn-manage-btn:hover { border-color: #00a1d6; color: #00a1d6; background: rgba(0,161,214,0.1); }
+            .bn-manage-btn.delete:hover { border-color: #f45d5d; color: #f45d5d; background: rgba(244,93,93,0.1); }
+            .bn-footer { background: #2a2a2e; border-top-color: #333; }
+            .bn-search-input { background: #2a2a2e; color: #e1e1e1; border-color: #444; }
+            .bn-search-input:focus { border-color: #00a1d6; }
+            .bn-search-icon { color: #666; }
+        }
     `);
 
     // ==================== 数据层 ====================
@@ -413,19 +501,32 @@
     }
 
     // Toast 提示
-    function showToast(msg) {
+    const TOAST_ICONS = {
+        success: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+        error: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+        warning: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+        info: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+    };
+    const TOAST_COLORS = {
+        success: '#10b981', error: '#ef4444', warning: '#f59e0b', info: '#18191c',
+    };
+    function showToast(msg, type = 'success') {
         const t = document.createElement('div');
-        t.textContent = msg;
+        t.setAttribute('role', 'status');
+        t.setAttribute('aria-live', 'polite');
+        const icon = TOAST_ICONS[type] || TOAST_ICONS.info;
+        const bg = TOAST_COLORS[type] || TOAST_COLORS.info;
+        t.innerHTML = `<span style="display:flex;align-items:center;gap:6px;">${icon}<span>${msg}</span></span>`;
         Object.assign(t.style, {
             position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)',
-            background: '#18191c', color: '#fff', padding: '10px 20px',
+            background: bg, color: '#fff', padding: '10px 20px',
             borderRadius: '8px', fontSize: '13px', fontWeight: '500',
             zIndex: '999999', boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
             animation: 'bn-toast-in 0.2s ease',
         });
         document.body.appendChild(t);
-        setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity 0.3s'; }, 1500);
-        setTimeout(() => t.remove(), 1800);
+        setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity 0.3s'; }, 2000);
+        setTimeout(() => t.remove(), 2300);
     }
 
     // ==================== DOM 工具 ====================
@@ -563,8 +664,8 @@
                 if (budget <= 0) break;
                 const el = document.createElement('span');
                 el.className = 'bili-note-tag';
-                el.style.backgroundColor = tag.color;
-                el.innerHTML = `${ICONS.tag}<span>${tag.text}</span>`;
+                el.style.backgroundColor = safeAttr(tag.color);
+                el.innerHTML = `<span>${escapeHtml(tag.text)}</span>`;
                 wrapper.appendChild(el);
                 budget -= tagCost;
             }
@@ -597,15 +698,16 @@
             if (hasTags) {
                 note.tags.forEach((tag, i) => {
                     if (i > 0) tooltipHtml += '<span class="bn-tt-sep">·</span>';
-                    tooltipHtml += `<span class="bn-tt-tag" style="background:${tag.color}">${ICONS.tag}<span>${tag.text}</span></span>`;
+                    tooltipHtml += `<span class="bn-tt-tag" style="background:${safeAttr(tag.color)}">${ICONS.tag}<span>${escapeHtml(tag.text)}</span></span>`;
                 });
             }
             if (hasText) {
                 if (hasTags) tooltipHtml += '<span class="bn-tt-sep">·</span>';
-                tooltipHtml += `<span class="bn-tt-text">${note.text}</span>`;
+                tooltipHtml += `<span class="bn-tt-text">${escapeHtml(note.text)}</span>`;
             }
             tooltip.innerHTML = tooltipHtml;
             document.body.appendChild(tooltip);
+            wrapper._tooltip = tooltip;
 
             wrapper.querySelectorAll('.bili-note-tag, .bili-note-text').forEach(el => {
                 el.addEventListener('mouseenter', () => {
@@ -674,13 +776,17 @@
         wrapper.className = 'bili-note-wrapper';
 
         if (hasTags) {
-            note.tags.forEach(tag => {
+            let budget = NOTE_MAX_CHARS;
+            for (const tag of note.tags) {
+                const tagCost = tag.text.length + 2;
+                if (budget <= 0) break;
                 const el = document.createElement('span');
                 el.className = 'bili-note-tag';
-                el.style.backgroundColor = tag.color;
-                el.innerHTML = `${ICONS.tag}<span>${tag.text}</span>`;
+                el.style.backgroundColor = safeAttr(tag.color);
+                el.innerHTML = `<span>${escapeHtml(tag.text)}</span>`;
                 wrapper.appendChild(el);
-            });
+                budget -= tagCost;
+            }
         }
         if (hasText) {
             const el = document.createElement('span');
@@ -699,15 +805,16 @@
             if (hasTags) {
                 note.tags.forEach((tag, i) => {
                     if (i > 0) tooltipHtml += '<span class="bn-tt-sep">·</span>';
-                    tooltipHtml += `<span class="bn-tt-tag" style="background:${tag.color}">${ICONS.tag}<span>${tag.text}</span></span>`;
+                    tooltipHtml += `<span class="bn-tt-tag" style="background:${safeAttr(tag.color)}">${ICONS.tag}<span>${escapeHtml(tag.text)}</span></span>`;
                 });
             }
             if (hasText) {
                 if (hasTags) tooltipHtml += '<span class="bn-tt-sep">·</span>';
-                tooltipHtml += `<span class="bn-tt-text">${note.text}</span>`;
+                tooltipHtml += `<span class="bn-tt-text">${escapeHtml(note.text)}</span>`;
             }
             tooltip.innerHTML = tooltipHtml;
             document.body.appendChild(tooltip);
+            wrapper._tooltip = tooltip;
 
             wrapper.querySelectorAll('.bili-note-tag, .bili-note-text').forEach(el => {
                 el.addEventListener('mouseenter', () => {
@@ -753,7 +860,12 @@
     }
 
     function refreshAll() {
-        document.querySelectorAll('.bili-note-wrapper').forEach(el => el.remove());
+        // 先清理所有关联的 tooltip
+        document.querySelectorAll('.bili-note-wrapper').forEach(el => {
+            if (el._tooltip) el._tooltip.remove();
+            el.remove();
+        });
+        // 清理剩余的孤立 tooltip
         document.querySelectorAll('.bili-note-tooltip-fixed').forEach(el => el.remove());
         document.querySelectorAll(`[${PROCESSED_ATTR}]`).forEach(el => el.removeAttribute(PROCESSED_ATTR));
         processPage();
@@ -771,6 +883,7 @@
                 if (!levelArea) return;
                 const urlMatch = location.pathname.match(/\/(\d+)/);
                 if (!urlMatch) return;
+                e.preventDefault();
                 const uid = urlMatch[1];
                 const userName = document.querySelector('.h-name')?.textContent?.trim() || '';
                 setTimeout(() => {
@@ -784,6 +897,7 @@
         // 通用逻辑：从右键目标精确查找 UID
         const { uid, el } = findUidFromTarget(e.target);
         if (!uid) return;
+        e.preventDefault();
 
         let userName = '';
         if (el) {
@@ -813,6 +927,9 @@
 
         const mask = document.createElement('div');
         mask.className = 'bili-note-mask';
+        mask.setAttribute('role', 'dialog');
+        mask.setAttribute('aria-modal', 'true');
+        mask.setAttribute('aria-label', isNew ? '添加备注' : '编辑备注');
 
         const modal = document.createElement('div');
         modal.className = 'bili-note-modal';
@@ -825,7 +942,7 @@
             <div class="bn-body">
                 <div class="bn-row">
                     <span class="bn-label">用户</span>
-                    <input type="text" class="bn-input" readonly value="${userName || 'UID: ' + uid}">
+                    <input type="text" class="bn-input" readonly value="${safeAttr(userName || 'UID: ' + uid)}">
                 </div>
                 <div class="bn-row">
                     <span class="bn-label">标签</span>
@@ -833,15 +950,26 @@
                         <div class="bn-tags-box" id="bn-tags"></div>
                         <div class="bn-tag-input-row">
                             <div class="bn-color-dot" id="bn-dot" title="点击选择颜色"></div>
-                            <textarea class="bn-tag-input" id="bn-tag-input" placeholder="输入标签文字，回车添加" rows="1"></textarea>
+                            <textarea class="bn-tag-input" id="bn-tag-input" placeholder="输入标签文字，回车添加" rows="1" maxlength="${TAG_MAX_LENGTH}"></textarea>
+                            <span class="bn-tag-counter" id="bn-tag-counter">0/${TAG_MAX_LENGTH}</span>
                             <div class="bn-color-popup" id="bn-color-popup" style="display:none;"></div>
                         </div>
-                        <div class="bn-tag-hint">输入文字后按 <kbd>Enter</kbd> 添加标签，点击圆点选择颜色</div>
+                        <div class="bn-tag-hint">输入文字后按 <kbd>Enter</kbd> 添加标签（最多 ${TAG_MAX_LENGTH} 字），点击圆点选择颜色</div>
                     </div>
                 </div>
                 <div class="bn-row">
                     <span class="bn-label">备注</span>
-                    <textarea class="bn-input" id="bn-text" placeholder="备注内容" rows="1">${noteData?.text || ''}</textarea>
+                    <div class="bn-tags-area">
+                        <textarea class="bn-input" id="bn-text" placeholder="备注内容" rows="1">${escapeHtml(noteData?.text || '')}</textarea>
+                        <div class="bn-tag-hint" style="margin-top: 6px;">
+                            <span style="color: #9499a0; font-size: 11px;">快速添加：</span>
+                            <span class="bn-template-btn" data-text="大佬">大佬</span>
+                            <span class="bn-template-btn" data-text="同好">同好</span>
+                            <span class="bn-template-btn" data-text="广告">广告</span>
+                            <span class="bn-template-btn" data-text="水友">水友</span>
+                            <span class="bn-template-btn" data-text="UP主">UP主</span>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="bn-footer">
@@ -854,6 +982,23 @@
         mask.appendChild(modal);
         document.body.appendChild(mask);
         currentModal = mask;
+
+        // 焦点锁定 - Tab 键只在弹窗内循环
+        const focusableSelectors = 'textarea, button, [tabindex]:not([tabindex="-1"])';
+        const focusableElements = modal.querySelectorAll(focusableSelectors);
+        if (focusableElements.length > 0) {
+            focusableElements[0].focus();
+            modal.addEventListener('keydown', (e) => {
+                if (e.key !== 'Tab') return;
+                const firstEl = focusableElements[0];
+                const lastEl = focusableElements[focusableElements.length - 1];
+                if (e.shiftKey) {
+                    if (document.activeElement === firstEl) { e.preventDefault(); lastEl.focus(); }
+                } else {
+                    if (document.activeElement === lastEl) { e.preventDefault(); firstEl.focus(); }
+                }
+            });
+        }
 
         let editingTags = [...tags];
         let selectedColor = PRESET_COLORS[0].value;
@@ -874,6 +1019,18 @@
         autoResize(textInput);
         tagInput.addEventListener('input', () => autoResize(tagInput));
         textInput.addEventListener('input', () => autoResize(textInput));
+
+        // 备注模板按钮
+        modal.querySelectorAll('.bn-template-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const text = btn.dataset.text;
+                if (textInput && text) {
+                    textInput.value = text;
+                    autoResize(textInput);
+                    textInput.focus();
+                }
+            });
+        });
 
         // 拖拽排序
         let dragIndex = null;
@@ -912,8 +1069,8 @@
 
         function renderTags() {
             tagsBox.innerHTML = editingTags.map((t, i) => `
-                <span class="bn-tag" style="background-color:${t.color}">
-                    <span>${t.text}</span>
+                <span class="bn-tag" style="background-color:${safeAttr(t.color)}">
+                    <span>${escapeHtml(t.text)}</span>
                     <span class="bn-tag-del" data-i="${i}">${ICONS.close}</span>
                 </span>
             `).join('');
@@ -930,12 +1087,16 @@
         function showColorPopup() {
             const recentColors = getRecentColors();
             colorPopup.innerHTML = `
+                <div class="bn-color-title">自定义颜色</div>
+                <div style="margin-bottom: 10px;">
+                    <input type="color" id="bn-custom-color" value="${safeAttr(selectedColor)}" style="width: 100%; height: 30px; border: 1px solid #e3e5e7; border-radius: 6px; cursor: pointer; padding: 0;">
+                </div>
                 ${recentColors.length > 0 ? `
                     <div class="bn-color-title">最近使用</div>
                     <div class="bn-color-grid" style="margin-bottom: 10px;">
                         ${recentColors.map(c => `
                             <div class="bn-color-item ${selectedColor === c ? 'active' : ''}"
-                                 style="background-color:${c}" data-color="${c}" data-code="${c}"></div>
+                                 style="background-color:${safeAttr(c)}" data-color="${safeAttr(c)}" data-code="${safeAttr(c)}"></div>
                         `).join('')}
                     </div>
                 ` : ''}
@@ -943,11 +1104,28 @@
                 <div class="bn-color-grid">
                     ${PRESET_COLORS.map(c => `
                         <div class="bn-color-item ${selectedColor === c.value ? 'active' : ''}"
-                             style="background-color:${c.value}" data-color="${c.value}" data-code="${c.value}"></div>
+                             style="background-color:${safeAttr(c.value)}" data-color="${safeAttr(c.value)}" data-code="${safeAttr(c.value)}"></div>
                     `).join('')}
                 </div>
             `;
             colorPopup.style.display = 'block';
+            // 自定义颜色选择器
+            const customColorInput = colorPopup.querySelector('#bn-custom-color');
+            if (customColorInput) {
+                customColorInput.addEventListener('input', (e) => {
+                    selectedColor = e.target.value;
+                    addRecentColor(selectedColor);
+                    updateDot();
+                    colorPopup.querySelectorAll('.bn-color-item').forEach(i => i.classList.remove('active'));
+                });
+                customColorInput.addEventListener('change', (e) => {
+                    selectedColor = e.target.value;
+                    addRecentColor(selectedColor);
+                    updateDot();
+                    hideColorPopup();
+                    tagInput.focus();
+                });
+            }
             colorPopup.querySelectorAll('.bn-color-item').forEach(item => {
                 item.addEventListener('click', () => {
                     selectedColor = item.dataset.color;
@@ -964,17 +1142,51 @@
         function hideColorPopup() { colorPopup.style.display = 'none'; }
 
         colorDot.addEventListener('click', e => { e.stopPropagation(); colorPopup.style.display === 'block' ? hideColorPopup() : showColorPopup(); });
-        document.addEventListener('click', e => { if (!e.target.closest('.bn-tag-input-row')) hideColorPopup(); });
+        const _onDocClick = e => { if (!e.target.closest('.bn-tag-input-row')) hideColorPopup(); };
+        document.addEventListener('click', _onDocClick);
+
+        // 保存清理函数，弹窗关闭时移除监听器
+        mask._cleanup = () => {
+            document.removeEventListener('click', _onDocClick);
+        };
+
+        // 标签字数计数器
+        const tagCounter = modal.querySelector('#bn-tag-counter');
+        function updateTagCounter() {
+            const len = tagInput.value.length;
+            tagCounter.textContent = `${len}/${TAG_MAX_LENGTH}`;
+            tagCounter.classList.toggle('warn', len >= TAG_MAX_LENGTH);
+        }
+        tagInput.addEventListener('input', updateTagCounter);
+        updateTagCounter();
+
+        // 未保存变更检测
+        let _hasUnsavedChanges = false;
+        function checkUnsavedChanges() {
+            const currentText = modal.querySelector('#bn-text').value;
+            const origText = noteData?.text || '';
+            const origTagsStr = JSON.stringify(noteData?.tags || []);
+            const curTagsStr = JSON.stringify(editingTags);
+            _hasUnsavedChanges = currentText !== origText || origTagsStr !== curTagsStr;
+        }
+        modal.querySelector('#bn-text').addEventListener('input', checkUnsavedChanges);
+        const _origRenderTags = renderTags;
+        renderTags = function() { _origRenderTags(); checkUnsavedChanges(); };
 
         tagInput.addEventListener('keydown', e => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 const text = tagInput.value.trim();
                 if (text) {
+                    if (text.length > TAG_MAX_LENGTH) {
+                        showToast(`标签最多 ${TAG_MAX_LENGTH} 个字符`);
+                        return;
+                    }
                     editingTags.push({ text, color: selectedColor });
                     renderTags();
                     tagInput.value = '';
                     autoResize(tagInput);
+                    updateTagCounter();
                 }
             }
         });
@@ -982,9 +1194,18 @@
         updateDot();
         renderTags();
 
-        modal.querySelector('.bn-close').addEventListener('click', closeModal);
-        modal.querySelector('#bn-cancel').addEventListener('click', closeModal);
-        mask.addEventListener('click', e => { if (e.target === mask) closeModal(); });
+        // 带确认的关闭
+        function confirmClose() {
+            checkUnsavedChanges();
+            if (_hasUnsavedChanges) {
+                if (!confirm('有未保存的更改，确定关闭吗？')) return;
+            }
+            closeModal();
+        }
+
+        modal.querySelector('.bn-close').addEventListener('click', confirmClose);
+        modal.querySelector('#bn-cancel').addEventListener('click', confirmClose);
+        mask.addEventListener('click', e => { if (e.target === mask) confirmClose(); });
 
         modal.querySelector('#bn-save').addEventListener('click', () => {
             setNote(uid, {
@@ -992,6 +1213,7 @@
                 tags: editingTags,
                 text: modal.querySelector('#bn-text').value.trim()
             });
+            _hasUnsavedChanges = false;
             refreshAll();
             closeModal();
             showToast(isNew ? '备注已添加' : '备注已更新');
@@ -1000,18 +1222,34 @@
         modal.querySelector('#bn-delete')?.addEventListener('click', () => {
             if (confirm(`确定删除 ${userName || uid} 的备注？`)) {
                 removeNote(uid);
+                _hasUnsavedChanges = false;
                 refreshAll();
                 closeModal();
                 showToast('备注已删除');
             }
         });
 
-        document.addEventListener('keydown', function onKey(e) {
-            if (e.key === 'Escape') { closeModal(); document.removeEventListener('keydown', onKey); }
-        });
+        // keydown 监听器 - 存储以便清理
+        const _onKeydown = (e) => {
+            if (e.key === 'Escape') { confirmClose(); }
+        };
+        document.addEventListener('keydown', _onKeydown);
+
+        // 更新清理函数，包含 keydown 监听器
+        const _origCleanup = mask._cleanup;
+        mask._cleanup = () => {
+            document.removeEventListener('keydown', _onKeydown);
+            if (_origCleanup) _origCleanup();
+        };
     }
 
-    function closeModal() { currentModal?.remove(); currentModal = null; }
+    function closeModal() {
+        if (currentModal) {
+            if (currentModal._cleanup) currentModal._cleanup();
+            currentModal.remove();
+        }
+        currentModal = null;
+    }
 
     // ==================== 管理面板 ====================
     function showManageModal() {
@@ -1056,18 +1294,20 @@
                 : currentNotes;
             if (filtered.length === 0) { list.innerHTML = '<div class="bn-empty">暂无匹配的备注</div>'; return; }
             list.innerHTML = filtered.map(n => `
-                <div class="bn-manage-item" data-uid="${n.uid}">
-                    <div class="bn-manage-info">
-                        <div class="bn-manage-name">${n.name || '未设置名称'}</div>
-                        <div class="bn-manage-uid">UID: ${n.uid}</div>
+                <div class="bn-manage-item" data-uid="${safeAttr(String(n.uid))}">
+                    <div class="bn-manage-header">
+                        <div class="bn-manage-info">
+                            <div class="bn-manage-name"><a class="bn-link" href="https://space.bilibili.com/${safeAttr(String(n.uid))}" target="_blank" rel="noopener">${escapeHtml(n.name) || '未设置名称'}</a></div>
+                            <div class="bn-manage-uid"><a class="bn-link" href="https://space.bilibili.com/${safeAttr(String(n.uid))}" target="_blank" rel="noopener">UID: ${escapeHtml(String(n.uid))}</a></div>
+                        </div>
+                        <div class="bn-manage-actions">
+                            <button class="bn-manage-btn edit" title="编辑">${ICONS.tag}</button>
+                            <button class="bn-manage-btn delete" title="删除">${ICONS.trash}</button>
+                        </div>
                     </div>
                     <div class="bn-manage-note">
-                        ${n.tags?.map(t => `<span class="bn-manage-tag" style="background-color:${t.color}">${t.text}</span>`).join('') || ''}
-                        ${n.text ? `<span class="bn-manage-text">${n.text}</span>` : ''}
-                    </div>
-                    <div class="bn-manage-actions">
-                        <button class="bn-manage-btn edit" title="编辑">${ICONS.tag}</button>
-                        <button class="bn-manage-btn delete" title="删除">${ICONS.trash}</button>
+                        ${n.tags?.length ? `<div class="bn-manage-tags">${n.tags.map(t => `<span class="bn-manage-tag" style="background-color:${safeAttr(t.color)}">${escapeHtml(t.text)}</span>`).join('')}</div>` : ''}
+                        ${n.text ? `<div class="bn-manage-text">${escapeHtml(n.text)}</div>` : ''}
                     </div>
                 </div>
             `).join('');
@@ -1095,15 +1335,21 @@
 
         // 导出
         modal.querySelector('#bn-export').addEventListener('click', () => {
-            const data = JSON.stringify(loadNotes(), null, 2);
+            const notes = loadNotes();
+            const count = Object.keys(notes).length;
+            if (count === 0) { showToast('暂无备注可导出', 'warning'); return; }
+            const data = JSON.stringify(notes, null, 2);
             const blob = new Blob([data], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
+            const filename = `bilibili-notes-backup-${new Date().toISOString().slice(0, 10)}.json`;
             a.href = url;
-            a.download = `bilibili-notes-backup-${new Date().toISOString().slice(0, 10)}.json`;
+            a.download = filename;
+            document.body.appendChild(a);
             a.click();
-            URL.revokeObjectURL(url);
-            showToast('备份已导出');
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            showToast(`已导出 ${count} 条备注 → ${filename}`, 'success');
         });
 
         // 导入
@@ -1155,18 +1401,68 @@
 
         migrateFromLocalStorage();
 
-        // 页面加载完成后执行一次，不使用 MutationObserver 避免干扰渲染
-        // 延迟 2 秒确保页面完全渲染
+        // 页面加载完成后执行一次
         setTimeout(processPage, 2000);
 
-        // 仅监听 URL 变化（SPA 跳转）
-        let lastUrl = location.href;
-        setInterval(() => {
-            if (location.href !== lastUrl) {
-                lastUrl = location.href;
-                setTimeout(processPage, 1000);
+        // 首次使用引导
+        const FIRST_USE_KEY = 'bilibili_notes_first_use_done';
+        if (!localStorage.getItem(FIRST_USE_KEY)) {
+            setTimeout(() => {
+                const guide = document.createElement('div');
+                guide.className = 'bili-note-tooltip-fixed';
+                guide.style.cssText = 'display:flex; bottom:auto; top: 20px; left: 50%; transform: translateX(-50%); z-index: 2147483647; white-space: nowrap;';
+                guide.innerHTML = `<span class="bn-tt-text" style="color:#e1e1e1;">按住 <b>Shift</b> + <b>右键</b> 点击用户名即可添加备注</span>`;
+                document.body.appendChild(guide);
+                setTimeout(() => {
+                    guide.style.opacity = '0';
+                    guide.style.transition = 'opacity 0.5s';
+                    setTimeout(() => guide.remove(), 500);
+                }, 3000);
+                localStorage.setItem(FIRST_USE_KEY, '1');
+            }, 2500);
+        }
+
+        // 防抖处理页面更新
+        let _processTimer = null;
+        function scheduleProcess(delay = 800) {
+            if (_processTimer) clearTimeout(_processTimer);
+            _processTimer = setTimeout(processPage, delay);
+        }
+
+        // 监听 SPA 路由变化（popstate + hashchange）
+        window.addEventListener('popstate', () => scheduleProcess(500), true);
+        window.addEventListener('hashchange', () => scheduleProcess(500), true);
+
+        // 监听 pushState/replaceState（SPA 跳转）
+        const _origPush = history.pushState;
+        const _origReplace = history.replaceState;
+        history.pushState = function () {
+            _origPush.apply(this, arguments);
+            scheduleProcess(500);
+        };
+        history.replaceState = function () {
+            _origReplace.apply(this, arguments);
+            scheduleProcess(500);
+        };
+
+        // MutationObserver 监听 DOM 变化（动态加载内容）
+        const _observer = new MutationObserver((mutations) => {
+            // 过滤：仅在有新增节点时触发，且排除自身注入的元素
+            let hasNewNodes = false;
+            for (const m of mutations) {
+                if (m.type === 'childList' && m.addedNodes.length > 0) {
+                    for (const node of m.addedNodes) {
+                        if (node.nodeType === Node.ELEMENT_NODE && !node.classList?.contains('bili-note-wrapper')) {
+                            hasNewNodes = true;
+                            break;
+                        }
+                    }
+                }
+                if (hasNewNodes) break;
             }
-        }, 1000);
+            if (hasNewNodes) scheduleProcess(1500);
+        });
+        _observer.observe(document.body, { childList: true, subtree: true });
 
         document.addEventListener('contextmenu', handleContextMenu, true);
     }
