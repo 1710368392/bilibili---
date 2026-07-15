@@ -16,6 +16,7 @@
 | 版本 | 说明 |
 |------|------|
 | **Tampermonkey 脚本** | 适用于 Tampermonkey / Violentmonkey 等脚本管理器 |
+| **Chrome 扩展** | 适用于 Google Chrome 浏览器（Manifest V3） |
 | **Edge 扩展** | 适用于 Microsoft Edge 浏览器 |
 
 ## 安装
@@ -29,6 +30,14 @@
 2. 点击 Tampermonkey 图标 → 添加新脚本
 3. 复制 `tampermonkey/bilibili-user-note.user.js` 的内容并粘贴
 4. 保存（Ctrl+S）
+
+### Chrome 扩展
+
+1. 下载本仓库的 `chrome-extension` 文件夹
+2. 打开 Chrome 浏览器，访问 `chrome://extensions/`
+3. 开启「开发者模式」
+4. 点击「加载已解压的扩展程序」
+5. 选择下载的 `chrome-extension` 文件夹
 
 ### Edge 扩展
 
@@ -58,6 +67,40 @@
 ## 许可证
 
 MIT License
+
+## 更新日志
+
+### v1.3.0 (2026-07-15)
+
+**安全修复**
+- showToast XSS 防护：消息文本改用 textContent 赋值
+- 空 catch 块添加 console.warn 日志输出
+
+**功能优化**
+- 空备注拦截：标签和备注都为空时阻止保存
+- 导入策略提示：显示冲突条数（如"已导入 5 条备注（2 条已有备注保留）"）
+
+**代码质量**
+- tooltip 创建逻辑去重：抽取 `attachTooltip()` 公共函数
+- 标签编辑 blur 竞态修复：改用 mousedown 标记方案
+
+**性能优化**
+- MutationObserver 收窄：从监听整个 body 改为仅监听用户名相关容器
+
+**Bug 修复**
+- 适配 B 站 space 页面改版：用户名选择器从 `.h-name` 扩展为 `.h-name, .nickname` 等多选择器
+
+**新增**
+- Chrome 浏览器插件版（Manifest V3）
+
+### v1.2.0
+
+- 全面优化：安全、性能、UI/UX
+- 修复删除备注后数据复活问题
+
+### v1.0.0
+
+- 初始版本
 
 ## 作者
 
