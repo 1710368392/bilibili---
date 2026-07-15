@@ -13,25 +13,16 @@ const BNShared = (() => {
     const NOTE_MAX_CHARS = 40;
 
     const PRESET_COLORS = [
-        { name: '朱砂', value: '#CF000F' },
-        { name: '胭脂', value: '#9D2933' },
-        { name: '珊瑚', value: '#F05654' },
-        { name: '石榴红', value: '#F20C00' },
-        { name: '绛紫', value: '#8C4356' },
-        { name: '黛绿', value: '#425066' },
-        { name: '竹青', value: '#789262' },
-        { name: '松花', value: '#BCE672' },
-        { name: '藤黄', value: '#FFB61E' },
-        { name: '鹅黄', value: '#FFF143' },
-        { name: '赭石', value: '#845A33' },
-        { name: '赤金', value: '#B76E79' },
-        { name: '靛青', value: '#177CB0' },
-        { name: '月白', value: '#D6ECF0' },
-        { name: '鸦青', value: '#424C50' },
-        { name: '黛蓝', value: '#5B7083' },
-        { name: '玄青', value: '#3D3B4F' },
-        { name: '墨色', value: '#50616D' },
-        { name: '银鼠', value: '#8C8C8C' },
+        { name: '朱砂', value: '#E74C3C' },
+        { name: '珊瑚', value: '#FF6B6B' },
+        { name: '藤黄', value: '#F39C12' },
+        { name: '鹅黄', value: '#F1C40F' },
+        { name: '竹青', value: '#27AE60' },
+        { name: '靛青', value: '#2980B9' },
+        { name: '绛紫', value: '#8E44AD' },
+        { name: '赭石', value: '#8B5E3C' },
+        { name: '鸦青', value: '#2C3E50' },
+        { name: '银鼠', value: '#95A5A6' },
     ];
 
     const ICONS = {

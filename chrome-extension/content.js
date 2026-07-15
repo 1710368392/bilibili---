@@ -61,13 +61,13 @@
     const USERNAME_SELECTORS = [
         '.reply-user-name', '.dyn-user-name', '.up-name', '.member-name',
         '.contact-name', '.chat-user-name', '.user-name', '.info-name',
-        '.relation-card-info__uname', '.h-name',
+        '.relation-card-info__uname', '.h-name', '.nickname',
         '.upinfo .name', '.uname', '.user-card .name', '.card-name',
     ];
 
     // ==================== 数据层 ====================
     function loadNotes() {
-        if (_notesLoaded) return _notesCache;
+        if (_notesLoaded) return Promise.resolve(_notesCache);
         return new Promise(resolve => {
             chrome.storage.local.get(STORAGE_KEY, (result) => {
                 _notesCache = result[STORAGE_KEY] || {};
@@ -131,19 +131,39 @@
         return Array.from(tagMap.values());
     }
 
-    function showToast(msg) {
+    // Phase 1: showToast XSS 修复 — msg 改用 textContent
+    const TOAST_ICONS = {
+        success: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+        error: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+        warning: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+        info: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+    };
+    const TOAST_COLORS = {
+        success: '#10b981', error: '#ef4444', warning: '#f59e0b', info: '#18191c',
+    };
+    function showToast(msg, type = 'success') {
         const t = document.createElement('div');
-        t.textContent = msg;
+        t.setAttribute('role', 'status');
+        t.setAttribute('aria-live', 'polite');
+        const icon = TOAST_ICONS[type] || TOAST_ICONS.info;
+        const bg = TOAST_COLORS[type] || TOAST_COLORS.info;
+        const wrap = document.createElement('span');
+        wrap.style.cssText = 'display:flex;align-items:center;gap:6px;';
+        wrap.innerHTML = icon;
+        const msgSpan = document.createElement('span');
+        msgSpan.textContent = msg;
+        wrap.appendChild(msgSpan);
+        t.appendChild(wrap);
         Object.assign(t.style, {
             position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)',
-            background: '#18191c', color: '#fff', padding: '10px 20px',
+            background: bg, color: '#fff', padding: '10px 20px',
             borderRadius: '8px', fontSize: '13px', fontWeight: '500',
             zIndex: '999999', boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
             animation: 'bn-toast-in 0.2s ease',
         });
         document.body.appendChild(t);
-        setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity 0.3s'; }, 1500);
-        setTimeout(() => t.remove(), 1800);
+        setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity 0.3s'; }, 2000);
+        setTimeout(() => t.remove(), 2300);
     }
 
     // ==================== DOM 工具 ====================
@@ -211,13 +231,50 @@
     // ==================== 注入逻辑 ====================
     const NOTE_MAX_CHARS = 40;
 
+    // Phase 2: tooltip 公共函数
+    function attachTooltip(wrapper, note, hasTags, hasText) {
+        const fullParts = [];
+        if (hasTags) note.tags.forEach(t => fullParts.push(t.text));
+        if (hasText) fullParts.push(note.text);
+        const fullText = fullParts.join(' · ');
+        if (fullText.length <= 15) return;
+
+        const tooltip = document.createElement('div');
+        tooltip.className = 'bili-note-tooltip-fixed';
+        let html = '';
+        if (hasTags) {
+            note.tags.forEach((tag, i) => {
+                if (i > 0) html += '<span class="bn-tt-sep">·</span>';
+                html += `<span class="bn-tt-tag" style="background:${safeAttr(tag.color)}">${ICONS.tag}<span>${escapeHtml(tag.text)}</span></span>`;
+            });
+        }
+        if (hasText) {
+            if (hasTags) html += '<span class="bn-tt-sep">·</span>';
+            html += `<span class="bn-tt-text">${escapeHtml(note.text)}</span>`;
+        }
+        tooltip.innerHTML = html;
+        document.body.appendChild(tooltip);
+        wrapper._tooltip = tooltip;
+
+        wrapper.querySelectorAll('.bili-note-tag, .bili-note-text').forEach(el => {
+            el.addEventListener('mouseenter', () => {
+                const rect = el.getBoundingClientRect();
+                tooltip.style.left = rect.left + 'px';
+                tooltip.style.bottom = (window.innerHeight - rect.top + 8) + 'px';
+                tooltip.style.top = 'auto';
+                tooltip.style.display = 'flex';
+            });
+            el.addEventListener('mouseleave', () => {
+                tooltip.style.display = 'none';
+            });
+        });
+    }
+
     function injectNote(uid, nameEl) {
         if (nameEl.nextElementSibling?.classList?.contains('bili-note-wrapper')) return;
         const note = getNote(uid);
         if (!note) return;
-        // 保存原始名字，用于删除备注时恢复
         if (!nameEl.dataset.bnOrigName) nameEl.dataset.bnOrigName = nameEl.textContent.trim();
-        // 替换页面上的用户名为备注中保存的名字
         if (note.name) {
             nameEl.textContent = note.name;
         } else if (nameEl.dataset.bnOrigName) {
@@ -226,11 +283,6 @@
         const hasTags = note.tags && note.tags.length > 0;
         const hasText = note.text;
         if (!hasTags && !hasText) return;
-
-        const fullParts = [];
-        if (hasTags) note.tags.forEach(t => fullParts.push(t.text));
-        if (hasText) fullParts.push(note.text);
-        const fullText = fullParts.join(' · ');
 
         const wrapper = document.createElement('span');
         wrapper.className = 'bili-note-wrapper';
@@ -258,36 +310,10 @@
         }
 
         nameEl.insertAdjacentElement('afterend', wrapper);
-
-        if (fullText.length > 15) {
-            const tooltip = document.createElement('div');
-            tooltip.className = 'bili-note-tooltip-fixed';
-            let tooltipHtml = '';
-            if (hasTags) note.tags.forEach((tag, i) => {
-                if (i > 0) tooltipHtml += '<span class="bn-tt-sep">·</span>';
-                tooltipHtml += `<span class="bn-tt-tag" style="background:${safeAttr(tag.color)}">${ICONS.tag}<span>${escapeHtml(tag.text)}</span></span>`;
-            });
-            if (hasText) {
-                if (hasTags) tooltipHtml += '<span class="bn-tt-sep">·</span>';
-                tooltipHtml += `<span class="bn-tt-text">${escapeHtml(note.text)}</span>`;
-            }
-            tooltip.innerHTML = tooltipHtml;
-            document.body.appendChild(tooltip);
-            // 存储 tooltip 引用，便于清理
-            wrapper._tooltip = tooltip;
-            wrapper.querySelectorAll('.bili-note-tag, .bili-note-text').forEach(el => {
-                el.addEventListener('mouseenter', () => {
-                    const rect = el.getBoundingClientRect();
-                    tooltip.style.left = rect.left + 'px';
-                    tooltip.style.bottom = (window.innerHeight - rect.top + 8) + 'px';
-                    tooltip.style.top = 'auto';
-                    tooltip.style.display = 'flex';
-                });
-                el.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
-            });
-        }
+        attachTooltip(wrapper, note, hasTags, hasText);
     }
 
+    // Phase 3: space 主页用户名替换（适配 .nickname 选择器）
     function processSpacePage() {
         if (!location.hostname.includes('space.bilibili.com')) return;
         const urlMatch = location.pathname.match(/\/(\d+)/);
@@ -297,18 +323,27 @@
         if (!note) return;
         const hasTags = note.tags && note.tags.length > 0;
         const hasText = note.text;
-        if (!hasTags && !hasText) return;
+        const hasName = !!note.name;
+        if (!hasTags && !hasText && !hasName) return;
+
+        // 替换用户名（适配 B 站改版）
+        const nameEl = document.querySelector('.h-name, .nickname, .h-info .name, [class*="uname"]');
+        if (nameEl) {
+            if (!nameEl.dataset.bnOrigName) nameEl.dataset.bnOrigName = nameEl.textContent.trim();
+            if (hasName) {
+                nameEl.textContent = note.name;
+            } else if (nameEl.dataset.bnOrigName) {
+                nameEl.textContent = nameEl.dataset.bnOrigName;
+            }
+        }
 
         const descEl = document.querySelector('.h-sign, .h-desc, .desc, .sign, [class*="sign"], [class*="desc"]');
         if (!descEl || descEl.getAttribute(PROCESSED_ATTR)) return;
         if (descEl.nextElementSibling?.classList?.contains('bili-note-wrapper')) return;
 
-        descEl.setAttribute(PROCESSED_ATTR, '1');
-        const fullParts = [];
-        if (hasTags) note.tags.forEach(t => fullParts.push(t.text));
-        if (hasText) fullParts.push(note.text);
-        const fullText = fullParts.join(' · ');
+        if (!hasTags && !hasText) return;
 
+        descEl.setAttribute(PROCESSED_ATTR, '1');
         const wrapper = document.createElement('span');
         wrapper.className = 'bili-note-wrapper';
         if (hasTags) {
@@ -331,33 +366,7 @@
             wrapper.appendChild(el);
         }
         descEl.insertAdjacentElement('afterend', wrapper);
-
-        if (fullText.length > 15) {
-            const tooltip = document.createElement('div');
-            tooltip.className = 'bili-note-tooltip-fixed';
-            let tooltipHtml = '';
-            if (hasTags) note.tags.forEach((tag, i) => {
-                if (i > 0) tooltipHtml += '<span class="bn-tt-sep">·</span>';
-                tooltipHtml += `<span class="bn-tt-tag" style="background:${safeAttr(tag.color)}">${ICONS.tag}<span>${escapeHtml(tag.text)}</span></span>`;
-            });
-            if (hasText) {
-                if (hasTags) tooltipHtml += '<span class="bn-tt-sep">·</span>';
-                tooltipHtml += `<span class="bn-tt-text">${escapeHtml(note.text)}</span>`;
-            }
-            tooltip.innerHTML = tooltipHtml;
-            document.body.appendChild(tooltip);
-            wrapper._tooltip = tooltip;
-            wrapper.querySelectorAll('.bili-note-tag, .bili-note-text').forEach(el => {
-                el.addEventListener('mouseenter', () => {
-                    const rect = el.getBoundingClientRect();
-                    tooltip.style.left = rect.left + 'px';
-                    tooltip.style.bottom = (window.innerHeight - rect.top + 8) + 'px';
-                    tooltip.style.top = 'auto';
-                    tooltip.style.display = 'flex';
-                });
-                el.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
-            });
-        }
+        attachTooltip(wrapper, note, hasTags, hasText);
     }
 
     function processPage() {
@@ -382,12 +391,10 @@
     }
 
     function refreshAll() {
-        // 先清理所有关联的 tooltip
         document.querySelectorAll('.bili-note-wrapper').forEach(el => {
             if (el._tooltip) el._tooltip.remove();
             el.remove();
         });
-        // 清理剩余的孤立 tooltip
         document.querySelectorAll('.bili-note-tooltip-fixed').forEach(el => el.remove());
         document.querySelectorAll(`[${PROCESSED_ATTR}]`).forEach(el => el.removeAttribute(PROCESSED_ATTR));
         processPage();
@@ -405,7 +412,7 @@
                 if (!urlMatch) return;
                 e.preventDefault();
                 const uid = urlMatch[1];
-                const userName = document.querySelector('.h-name')?.textContent?.trim() || '';
+                const userName = document.querySelector('.h-name, .nickname, .h-info .name, [class*="uname"]')?.textContent?.trim() || '';
                 setTimeout(() => showModal(uid, userName, getNote(uid)), 50);
                 return;
             }
@@ -483,7 +490,6 @@
         document.body.appendChild(mask);
         currentModal = mask;
 
-        // 焦点锁定 - Tab 键只在弹窗内循环
         const focusableSelectors = 'textarea, button, [tabindex]:not([tabindex="-1"])';
         const focusableElements = modal.querySelectorAll(focusableSelectors);
         if (focusableElements.length > 0) {
@@ -502,29 +508,24 @@
 
         let editingTags = [...tags];
         let selectedColor = PRESET_COLORS[0].value;
+        let _colorDotMouseDown = false;
         const tagsBox = modal.querySelector('#bn-tags');
         const tagInput = modal.querySelector('#bn-tag-input');
         const colorPopup = modal.querySelector('#bn-color-popup');
         const colorDot = modal.querySelector('#bn-dot');
+        const textInput = modal.querySelector('#bn-text');
 
         function updateDot() { colorDot.style.backgroundColor = selectedColor; }
 
-        // 自动调整 textarea 高度
         function autoResize(el) {
             el.style.height = 'auto';
-            el.style.height = Math.min(el.scrollHeight, 80) + 'px';
+            el.style.height = Math.min(el.scrollHeight, 120) + 'px';
         }
         autoResize(tagInput);
+        autoResize(textInput);
         tagInput.addEventListener('input', () => autoResize(tagInput));
+        textInput.addEventListener('input', () => autoResize(textInput));
 
-        // 备注 textarea 自动调整
-        const textInput = modal.querySelector('#bn-text');
-        if (textInput) {
-            autoResize(textInput);
-            textInput.addEventListener('input', () => autoResize(textInput));
-        }
-
-        // 已有标签快捷添加
         const existingTagsBox = modal.querySelector('#bn-existing-tags');
         const allTags = getAllUniqueTags();
 
@@ -550,18 +551,15 @@
                 <div class="bn-existing-scrollbar"><div class="bn-existing-scrollbar-thumb bn-existing-scrollbar-thumb-l"></div><div class="bn-existing-scrollbar-thumb bn-existing-scrollbar-thumb-r"></div></div>
             `;
 
-            // 跑马灯无缝循环滚动逻辑
             const scrollContainer = existingTagsBox.querySelector('.bn-existing-tags-viewport');
             const scrollTrack = existingTagsBox.querySelector('.bn-existing-tags-track');
             const scrollbar = existingTagsBox.querySelector('.bn-existing-scrollbar');
             const thumbL = existingTagsBox.querySelector('.bn-existing-scrollbar-thumb-l');
             const thumbR = existingTagsBox.querySelector('.bn-existing-scrollbar-thumb-r');
 
-            // 复制一份内容实现无缝循环
             const originalHTML = scrollTrack.innerHTML;
             scrollTrack.innerHTML = originalHTML + originalHTML;
 
-            // 事件委托：点击标签快速添加
             scrollTrack.addEventListener('click', (e) => {
                 const tag = e.target.closest('.bn-existing-tag');
                 if (!tag) return;
@@ -573,13 +571,8 @@
                 }
             });
 
-            function getOriginalWidth() {
-                return scrollTrack.scrollWidth / 2;
-            }
-
-            function getContainerWidth() {
-                return scrollContainer.offsetWidth;
-            }
+            function getOriginalWidth() { return scrollTrack.scrollWidth / 2; }
+            function getContainerWidth() { return scrollContainer.offsetWidth; }
 
             function updateThumbSegments() {
                 const trackWidth = scrollbar.offsetWidth;
@@ -613,14 +606,12 @@
                 } else {
                     const rightW = trackWidth - pos;
                     const leftW = thumbWidth - rightW;
-
                     thumbL.className = 'bn-existing-scrollbar-thumb ' + dirClass + ' s-head-r';
                     thumbL.style.left = '0px';
                     thumbL.style.width = leftW + 'px';
                     thumbL.style.setProperty('--tail-c', tailBrightColor);
                     thumbL.style.setProperty('--head-c', headBrightColor);
                     thumbL.style.display = '';
-
                     thumbR.className = 'bn-existing-scrollbar-thumb ' + dirClass + ' s-tail-r';
                     thumbR.style.left = pos + 'px';
                     thumbR.style.width = rightW + 'px';
@@ -637,7 +628,6 @@
                 updateThumbSegments();
             }
 
-            // 自定义滚动条拖拽
             let dragging = false, dragStartX = 0, dragStartPos = 0;
             function onDragStart(e) {
                 e.preventDefault(); e.stopPropagation();
@@ -682,7 +672,6 @@
                 startAutoScroll();
             }
 
-            // 点击轨道跳转
             scrollbar.addEventListener('click', (e) => {
                 if (e.target.classList.contains('bn-existing-scrollbar-thumb')) return;
                 const origWidth = getOriginalWidth();
@@ -720,158 +709,150 @@
                 }, TICK_INTERVAL);
             }
 
-
             existingTagsBox.addEventListener('mouseenter', stopAutoScroll);
             existingTagsBox.addEventListener('mouseleave', startAutoScroll);
 
             updateThumbSegments();
             startAutoScroll();
 
-            // ========== #号标签检索模式 ==========
             if (tagInput) {
                 let searchActive = false;
-            let searchKeyword = '';
-            let searchSelectedIdx = -1;
-            let searchMatchEls = [];
+                let searchKeyword = '';
+                let searchSelectedIdx = -1;
+                let searchMatchEls = [];
 
-            // 添加提示元素
-            const searchHint = document.createElement('div');
-            searchHint.className = 'bn-search-hint';
-            searchHint.innerHTML = `${ICONS.search}<span>正在检索已有标签</span>`;
-            tagInput.closest('.bn-tags-area').appendChild(searchHint);
+                const searchHint = document.createElement('div');
+                searchHint.className = 'bn-search-hint';
+                searchHint.innerHTML = `${ICONS.search}<span>正在检索已有标签</span>`;
+                tagInput.closest('.bn-tags-area').appendChild(searchHint);
 
-            function getHashInfo() {
-                const val = tagInput.value;
-                const idx = val.indexOf('#');
-                if (idx === -1) {
-                    const idx2 = val.indexOf('＃');
-                    if (idx2 === -1) return null;
-                    return { kw: val.substring(idx2 + 1) };
+                function getHashInfo() {
+                    const val = tagInput.value;
+                    const idx = val.indexOf('#');
+                    if (idx === -1) {
+                        const idx2 = val.indexOf('＃');
+                        if (idx2 === -1) return null;
+                        return { kw: val.substring(idx2 + 1) };
+                    }
+                    return { kw: val.substring(idx + 1) };
                 }
-                return { kw: val.substring(idx + 1) };
-            }
 
-            function enterSearchMode() {
-                if (searchActive) return;
-                searchActive = true;
-                searchHint.style.display = 'flex';
-            }
+                function enterSearchMode() {
+                    if (searchActive) return;
+                    searchActive = true;
+                    searchHint.style.display = 'flex';
+                }
 
-            function exitSearchMode() {
-                if (!searchActive) return;
-                searchActive = false;
-                searchKeyword = '';
-                searchSelectedIdx = -1;
-                searchHint.style.display = 'none';
-                const viewport = existingTagsBox.querySelector('.bn-existing-tags-viewport');
-                if (viewport) {
-                    viewport.querySelectorAll('.bn-existing-tag').forEach(el => {
+                function exitSearchMode() {
+                    if (!searchActive) return;
+                    searchActive = false;
+                    searchKeyword = '';
+                    searchSelectedIdx = -1;
+                    searchHint.style.display = 'none';
+                    const viewport = existingTagsBox.querySelector('.bn-existing-tags-viewport');
+                    if (viewport) {
+                        viewport.querySelectorAll('.bn-existing-tag').forEach(el => {
+                            el.classList.remove('search-hidden', 'search-dim', 'search-selected');
+                        });
+                    }
+                    const emptyEl = existingTagsBox.querySelector('.bn-empty-search');
+                    if (emptyEl) emptyEl.style.display = 'none';
+                }
+
+                function doSearch() {
+                    const info = getHashInfo();
+                    if (!info) { exitSearchMode(); return; }
+                    if (!searchActive) enterSearchMode();
+                    searchKeyword = info.kw.toLowerCase();
+                    searchSelectedIdx = -1;
+                    searchMatchEls = [];
+
+                    const viewport = existingTagsBox.querySelector('.bn-existing-tags-viewport');
+                    if (!viewport) return;
+                    const allEls = viewport.querySelectorAll('.bn-existing-tag');
+
+                    allEls.forEach(el => {
                         el.classList.remove('search-hidden', 'search-dim', 'search-selected');
+                        const text = (el.dataset.text || '').toLowerCase();
+                        if (searchKeyword === '' || text.includes(searchKeyword)) {
+                            searchMatchEls.push(el);
+                        } else {
+                            el.classList.add('search-hidden');
+                        }
                     });
-                }
-                const emptyEl = existingTagsBox.querySelector('.bn-empty-search');
-                if (emptyEl) emptyEl.style.display = 'none';
-            }
 
-            function doSearch() {
-                const info = getHashInfo();
-                if (!info) { exitSearchMode(); return; }
-                if (!searchActive) enterSearchMode();
-                searchKeyword = info.kw.toLowerCase();
-                searchSelectedIdx = -1;
-                searchMatchEls = [];
+                    let emptyEl = existingTagsBox.querySelector('.bn-empty-search');
+                    if (!emptyEl) {
+                        emptyEl = document.createElement('div');
+                        emptyEl.className = 'bn-empty-search';
+                        emptyEl.textContent = '无匹配标签';
+                        existingTagsBox.querySelector('.bn-existing-tags-viewport').parentElement.appendChild(emptyEl);
+                    }
+                    emptyEl.style.display = searchMatchEls.length === 0 ? 'block' : 'none';
 
-                const viewport = existingTagsBox.querySelector('.bn-existing-tags-viewport');
-                if (!viewport) return;
-                const allEls = viewport.querySelectorAll('.bn-existing-tag');
-
-                allEls.forEach(el => {
-                    el.classList.remove('search-hidden', 'search-dim', 'search-selected');
-                    const text = (el.dataset.text || '').toLowerCase();
-                    if (searchKeyword === '' || text.includes(searchKeyword)) {
-                        searchMatchEls.push(el);
+                    if (searchMatchEls.length > 0) {
+                        searchSelectedIdx = 0;
+                        searchMatchEls.forEach(el => el.classList.add('search-dim'));
+                        searchMatchEls[0].classList.remove('search-dim');
+                        searchMatchEls[0].classList.add('search-selected');
                     } else {
-                        el.classList.add('search-hidden');
+                        allEls.forEach(el => el.classList.add('search-dim'));
                     }
-                });
-
-                // 空结果提示
-                let emptyEl = existingTagsBox.querySelector('.bn-empty-search');
-                if (!emptyEl) {
-                    emptyEl = document.createElement('div');
-                    emptyEl.className = 'bn-empty-search';
-                    emptyEl.textContent = '无匹配标签';
-                    existingTagsBox.querySelector('.bn-existing-tags-viewport').parentElement.appendChild(emptyEl);
                 }
-                emptyEl.style.display = searchMatchEls.length === 0 ? 'block' : 'none';
 
-                // 默认选中第一个
-                if (searchMatchEls.length > 0) {
-                    searchSelectedIdx = 0;
-                    searchMatchEls.forEach(el => el.classList.add('search-dim'));
-                    searchMatchEls[0].classList.remove('search-dim');
-                    searchMatchEls[0].classList.add('search-selected');
-                } else {
-                    allEls.forEach(el => el.classList.add('search-dim'));
-                }
-            }
-
-            function selectMatch(idx) {
-                if (searchMatchEls.length === 0) return;
-                searchMatchEls.forEach(el => {
-                    el.classList.remove('search-selected', 'search-dim');
-                    el.classList.add('search-dim');
-                });
-                searchSelectedIdx = ((idx % searchMatchEls.length) + searchMatchEls.length) % searchMatchEls.length;
-                searchMatchEls[searchSelectedIdx].classList.remove('search-dim');
-                searchMatchEls[searchSelectedIdx].classList.add('search-selected');
-            }
-
-            // 检测光标位置变化
-            function checkCursor() {
-                const info = getHashInfo();
-                if (!info) { exitSearchMode(); return; }
-                doSearch();
-            }
-
-            tagInput.addEventListener('input', checkCursor);
-            tagInput.addEventListener('click', checkCursor);
-
-            tagInput.addEventListener('keydown', (e) => {
-                if (!searchActive) return;
-                if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-                    e.preventDefault();
+                function selectMatch(idx) {
                     if (searchMatchEls.length === 0) return;
-                    if (e.key === 'ArrowDown') selectMatch(searchSelectedIdx + 1);
-                    else selectMatch(searchSelectedIdx - 1);
+                    searchMatchEls.forEach(el => {
+                        el.classList.remove('search-selected', 'search-dim');
+                        el.classList.add('search-dim');
+                    });
+                    searchSelectedIdx = ((idx % searchMatchEls.length) + searchMatchEls.length) % searchMatchEls.length;
+                    searchMatchEls[searchSelectedIdx].classList.remove('search-dim');
+                    searchMatchEls[searchSelectedIdx].classList.add('search-selected');
                 }
-                if (e.key === 'Escape') {
-                    e.preventDefault();
-                    exitSearchMode();
-                }
-                if (e.key === 'Enter' && !e.shiftKey && searchSelectedIdx >= 0 && searchMatchEls.length > 0) {
-                    e.preventDefault();
-                    const el = searchMatchEls[searchSelectedIdx];
-                    const text = el.dataset.text;
-                    const color = el.dataset.color;
-                    if (text && !editingTags.some(t => t.text === text && t.color === color)) {
-                        editingTags.push({ text, color });
-                        renderTags();
-                    }
-                    tagInput.value = '';
-                    autoResize(tagInput);
-                    exitSearchMode();
-                }
-            });
 
-            // 点击外部退出
-            mask.addEventListener('mousedown', (e) => {
-                if (searchActive && !tagInput.contains(e.target) && !e.target.closest('#bn-dot') && !(colorPopup && colorPopup.contains(e.target))) exitSearchMode();
-            });
+                function checkCursor() {
+                    const info = getHashInfo();
+                    if (!info) { exitSearchMode(); return; }
+                    doSearch();
+                }
+
+                tagInput.addEventListener('input', checkCursor);
+                tagInput.addEventListener('click', checkCursor);
+
+                tagInput.addEventListener('keydown', (e) => {
+                    if (!searchActive) return;
+                    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        if (searchMatchEls.length === 0) return;
+                        if (e.key === 'ArrowDown') selectMatch(searchSelectedIdx + 1);
+                        else selectMatch(searchSelectedIdx - 1);
+                    }
+                    if (e.key === 'Escape') {
+                        e.preventDefault();
+                        exitSearchMode();
+                    }
+                    if (e.key === 'Enter' && !e.shiftKey && searchSelectedIdx >= 0 && searchMatchEls.length > 0) {
+                        e.preventDefault();
+                        const el = searchMatchEls[searchSelectedIdx];
+                        const text = el.dataset.text;
+                        const color = el.dataset.color;
+                        if (text && !editingTags.some(t => t.text === text && t.color === color)) {
+                            editingTags.push({ text, color });
+                            renderTags();
+                        }
+                        tagInput.value = '';
+                        autoResize(tagInput);
+                        exitSearchMode();
+                    }
+                });
+
+                mask.addEventListener('mousedown', (e) => {
+                    if (searchActive && !tagInput.contains(e.target) && !e.target.closest('#bn-dot') && !(colorPopup && colorPopup.contains(e.target))) exitSearchMode();
+                });
             }
         }
 
-        // 拖拽排序
         let dragIndex = null;
         function setupDrag() {
             tagsBox.querySelectorAll('.bn-tag').forEach((tag, i) => {
@@ -968,11 +949,12 @@
                 if (e.key === 'Enter') { e.preventDefault(); commit(); }
                 if (e.key === 'Escape') { e.preventDefault(); cancel(); }
             });
+            // Phase 2: blur 竞态修复 — 用 mousedown 标记替代 setTimeout
             input.addEventListener('blur', () => {
-                setTimeout(() => {
-                    if (colorPopup.style.display === 'block' || !input.parentNode) return;
+                requestAnimationFrame(() => {
+                    if (_colorDotMouseDown || !input.parentNode) return;
                     commit();
-                }, 150);
+                });
             });
         }
 
@@ -1007,7 +989,6 @@
             }
             colorPopup.style.top = popupTop + 'px';
             colorPopup.style.left = popupLeft + 'px';
-            // 自定义颜色选择器
             const customColorInput = colorPopup.querySelector('#bn-custom-color');
             if (customColorInput) {
                 customColorInput.addEventListener('input', (e) => {
@@ -1060,24 +1041,21 @@
             });
         }
 
+        // Phase 2: mousedown 标记
+        colorDot.addEventListener('mousedown', () => { _colorDotMouseDown = true; });
         colorDot.addEventListener('click', e => {
             e.stopPropagation();
-            if (colorPopup.style.display === 'block') {
-                colorPopup.style.display = 'none';
-            } else {
-                showColorPopup();
-            }
+            colorPopup.style.display === 'block' ? colorPopup.style.display = 'none' : showColorPopup();
+            setTimeout(() => { _colorDotMouseDown = false; }, 0);
         });
         const _onDocClick = e => { if (!e.target.closest('.bn-tag-input-row')) colorPopup.style.display = 'none'; };
         document.addEventListener('click', _onDocClick);
 
-        // 保存清理函数，弹窗关闭时移除监听器
         mask._cleanup = () => {
             stopAutoScroll();
             document.removeEventListener('click', _onDocClick);
         };
 
-        // 标签字数计数器
         const tagCounter = modal.querySelector('#bn-tag-counter');
         function updateTagCounter() {
             const len = tagInput.value.length;
@@ -1087,7 +1065,6 @@
         tagInput.addEventListener('input', updateTagCounter);
         updateTagCounter();
 
-        // 未保存变更检测
         let _hasUnsavedChanges = false;
         function checkUnsavedChanges() {
             const currentText = modal.querySelector('#bn-text').value;
@@ -1097,7 +1074,6 @@
             _hasUnsavedChanges = currentText !== origText || origTagsStr !== curTagsStr;
         }
         modal.querySelector('#bn-text').addEventListener('input', checkUnsavedChanges);
-        // 标签变化时也检测
         const _origRenderTags = renderTags;
         renderTags = function() { _origRenderTags(); checkUnsavedChanges(); };
 
@@ -1122,7 +1098,6 @@
         updateDot();
         renderTags();
 
-        // 带确认的关闭
         function confirmClose() {
             checkUnsavedChanges();
             if (_hasUnsavedChanges) {
@@ -1134,10 +1109,15 @@
         modal.querySelector('.bn-close').addEventListener('click', confirmClose);
         modal.querySelector('#bn-cancel').addEventListener('click', confirmClose);
 
+        // Phase 1: 空备注拦截
         modal.querySelector('#bn-save').addEventListener('click', () => {
             const newName = modal.querySelector('#bn-username').value.trim();
             const noteData = { tags: editingTags, text: modal.querySelector('#bn-text').value.trim() };
             if (newName) noteData.name = newName;
+            if (editingTags.length === 0 && !noteData.text) {
+                showToast('请至少添加一个标签或备注', 'warning');
+                return;
+            }
             setNote(uid, noteData);
             _hasUnsavedChanges = false;
             refreshAll();
@@ -1155,13 +1135,11 @@
             }
         });
 
-        // keydown 监听器 - 存储以便清理
         const _onKeydown = (e) => {
             if (e.key === 'Escape') { confirmClose(); }
         };
         document.addEventListener('keydown', _onKeydown);
 
-        // 更新清理函数，包含 keydown 监听器
         const _origCleanup = mask._cleanup;
         mask._cleanup = () => {
             document.removeEventListener('keydown', _onKeydown);
@@ -1182,7 +1160,6 @@
         loadNotes().then(() => {
             setTimeout(processPage, 2000);
 
-            // 首次使用引导
             const FIRST_USE_KEY = 'bilibili_notes_first_use_done';
             if (!localStorage.getItem(FIRST_USE_KEY)) {
                 setTimeout(() => {
@@ -1200,18 +1177,15 @@
                 }, 2500);
             }
 
-            // 防抖处理页面更新
             let _processTimer = null;
             function scheduleProcess(delay = 800) {
                 if (_processTimer) clearTimeout(_processTimer);
                 _processTimer = setTimeout(processPage, delay);
             }
 
-            // 监听 SPA 路由变化（popstate + hashchange）
             window.addEventListener('popstate', () => scheduleProcess(500), true);
             window.addEventListener('hashchange', () => scheduleProcess(500), true);
 
-            // 监听 pushState/replaceState（SPA 跳转）
             const _origPush = history.pushState;
             const _origReplace = history.replaceState;
             history.pushState = function () {
@@ -1223,7 +1197,19 @@
                 scheduleProcess(500);
             };
 
-            // MutationObserver 监听 DOM 变化（动态加载内容）
+            // Phase 3: MutationObserver 收窄到用户名相关容器
+            const OBSERVE_SELECTORS = [
+                '.reply-list', '.comment-list',
+                '.dyn-list', '.dyn-space',
+                '.video-info', '.video-desc',
+                '.h-info', '.h-header',
+                '.member-list', '.relation-list',
+                '.contact-list',
+                '.chat-list', '.chat-container',
+                '.search-page', '.search-result',
+                '.feed-card', '.card-list',
+                '#app',
+            ];
             const _observer = new MutationObserver((mutations) => {
                 let hasNewNodes = false;
                 for (const m of mutations) {
@@ -1239,7 +1225,13 @@
                 }
                 if (hasNewNodes) scheduleProcess(1500);
             });
-            _observer.observe(document.body, { childList: true, subtree: true });
+            const observeTargets = OBSERVE_SELECTORS
+                .map(sel => document.querySelector(sel))
+                .filter(Boolean);
+            observeTargets.forEach(el => _observer.observe(el, { childList: true, subtree: true }));
+            if (observeTargets.length === 0) {
+                _observer.observe(document.body, { childList: true, subtree: true });
+            }
 
             document.addEventListener('contextmenu', handleContextMenu, true);
         });

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili 用户备注助手
 // @namespace    http://tampermonkey.net/
-// @version      1.2.0
+// @version      1.3.0
 // @description  按住 Shift 右键用户名即可添加备注，支持多标签和自定义配色
 // @author       糖心月
 // @copyright    2026, 糖心月 (https://github.com/1710368392)
@@ -68,25 +68,16 @@
     }
 
     const PRESET_COLORS = [
-        { name: '朱砂', value: '#CF000F' },
-        { name: '胭脂', value: '#9D2933' },
-        { name: '珊瑚', value: '#F05654' },
-        { name: '石榴红', value: '#F20C00' },
-        { name: '绛紫', value: '#8C4356' },
-        { name: '黛绿', value: '#425066' },
-        { name: '竹青', value: '#789262' },
-        { name: '松花', value: '#BCE672' },
-        { name: '藤黄', value: '#FFB61E' },
-        { name: '鹅黄', value: '#FFF143' },
-        { name: '赭石', value: '#845A33' },
-        { name: '赤金', value: '#B76E79' },
-        { name: '靛青', value: '#177CB0' },
-        { name: '月白', value: '#D6ECF0' },
-        { name: '鸦青', value: '#424C50' },
-        { name: '黛蓝', value: '#5B7083' },
-        { name: '玄青', value: '#3D3B4F' },
-        { name: '墨色', value: '#50616D' },
-        { name: '银鼠', value: '#8C8C8C' },
+        { name: '朱砂', value: '#E74C3C' },
+        { name: '珊瑚', value: '#FF6B6B' },
+        { name: '藤黄', value: '#F39C12' },
+        { name: '鹅黄', value: '#F1C40F' },
+        { name: '竹青', value: '#27AE60' },
+        { name: '靛青', value: '#2980B9' },
+        { name: '绛紫', value: '#8E44AD' },
+        { name: '赭石', value: '#8B5E3C' },
+        { name: '鸦青', value: '#2C3E50' },
+        { name: '银鼠', value: '#95A5A6' },
     ];
 
     const ICONS = {
@@ -192,10 +183,10 @@
         .bili-note-modal {
             width: 400px; background: #fff; border-radius: 12px;
             box-shadow: 0 8px 32px rgba(0,0,0,0.12); overflow: hidden;
-            animation: bn-modal-in 0.25s cubic-bezier(0.4,0,0.2,1) forwards;
-            transform: scale(0.95); opacity: 0;
+            animation: bn-modal-in 0.25s ease forwards;
+            opacity: 0;
         }
-        @keyframes bn-modal-in { to { transform: scale(1); opacity: 1; } }
+        @keyframes bn-modal-in { to { opacity: 1; } }
         .bn-header {
             display: flex; align-items: center; justify-content: space-between;
             padding: 16px 20px; background: linear-gradient(135deg, #f8f9fa, #fff);
@@ -208,7 +199,7 @@
             border-radius: 8px; transition: all 0.2s;
         }
         .bn-close:hover { background: #f1f2f3; color: #18191c; }
-        .bn-body { padding: 20px; }
+        .bn-body { padding: 20px; overflow: hidden; }
         .bn-footer {
             display: flex; justify-content: flex-end; gap: 10px;
             padding: 16px 20px; background: #f8f9fa; border-top: 1px solid #f1f2f3;
@@ -217,7 +208,7 @@
         .bn-row:last-child { margin-bottom: 0; }
         .bn-label { width: 48px; font-size: 13px; color: #61666d; flex-shrink: 0; padding-top: 7px; font-weight: 500; }
         .bn-input {
-            flex: 1; min-height: 36px; max-height: 120px; padding: 8px 12px;
+            flex: 1; min-width: 0; min-height: 36px; max-height: 120px; padding: 8px 12px;
             border: 1.5px solid #e3e5e7; border-radius: 8px;
             font-size: 13px; color: #18191c; outline: none; transition: border-color 0.2s;
             resize: none; overflow-y: auto; line-height: 1.4;
@@ -227,7 +218,7 @@
         .bn-input[readonly] { background: linear-gradient(135deg, #f8f9fa, #f1f2f3); color: #61666d; border-style: dashed; }
 
         /* 标签区域 */
-        .bn-tags-area { flex: 1; }
+        .bn-tags-area { flex: 1; min-width: 0; }
         .bn-tags-box {
             display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px;
             min-height: 32px; padding: 8px; background: #f8f9fa;
@@ -253,14 +244,34 @@
         }
         .bn-tag-del:hover { background: rgba(255,255,255,0.4); transform: scale(1.1); }
         .bn-tag-del svg { width: 10px; height: 10px; }
-        .bn-tag-input-row { position: relative; display: flex; align-items: center; gap: 8px; }
+        .bn-tag-editing {
+            background: #fff !important; border: 1.5px solid #00a1d6;
+            box-shadow: 0 0 0 3px rgba(0,161,214,0.15);
+            padding: 0; gap: 0; cursor: default;
+        }
+        .bn-tag-editing input {
+            width: 80px; height: 24px; border: none; outline: none;
+            font-size: 12px; color: #18191c; background: transparent;
+            padding: 0 6px; font-family: inherit;
+        }
+        .bn-tag-input-row { position: relative; display: flex; align-items: flex-start; gap: 8px; margin-left: -32px; }
+        .bn-tag-input-left {
+            display: flex; flex-direction: column; align-items: center; gap: 4px; flex-shrink: 0; padding-top: 7px;
+        }
         .bn-color-dot {
             width: 20px; height: 20px; border-radius: 50%; border: 2px solid #fff;
             box-shadow: 0 0 0 1px #e3e5e7; cursor: pointer; flex-shrink: 0; transition: all 0.2s;
+            position: relative;
         }
         .bn-color-dot:hover { transform: scale(1.1); }
+        .bn-color-dot-hint::after {
+            content: '点击更换颜色'; position: absolute; bottom: calc(100% + 6px); left: 50%;
+            transform: translateX(-50%); background: #18191c; color: #fff;
+            padding: 4px 8px; border-radius: 4px; font-size: 11px; white-space: nowrap;
+            pointer-events: none; z-index: 10; animation: bn-tooltip-in 0.2s ease;
+        }
         .bn-tag-input {
-            flex: 1; min-height: 36px; max-height: 80px; padding: 8px 12px;
+            flex: 1; min-width: 0; min-height: 36px; max-height: 80px; padding: 8px 12px;
             border: 1.5px solid #e3e5e7; border-radius: 8px;
             font-size: 13px; outline: none; transition: border-color 0.2s;
             resize: none; overflow-y: auto; line-height: 1.4;
@@ -270,7 +281,6 @@
         .bn-tag-input::placeholder { color: #c9ccd0; }
         .bn-tag-counter {
             font-size: 11px; color: #9499a0; white-space: nowrap; flex-shrink: 0;
-            padding-top: 8px;
         }
         .bn-tag-counter.warn { color: #f45d5d; }
         .bn-tag-hint { font-size: 12px; color: #9499a0; margin-top: 8px; }
@@ -281,27 +291,96 @@
             transition: all 0.15s; white-space: nowrap; margin-left: 4px;
         }
         .bn-template-btn:hover { border-color: #00a1d6; color: #00a1d6; background: rgba(0,161,214,0.05); }
+        .bn-existing-tags { margin-top: 8px; margin-left: -62px; }
+        .bn-existing-tags-viewport {
+            position: relative; width: 100%; overflow: hidden;
+        }
+        .bn-existing-tags-viewport::before,
+        .bn-existing-tags-viewport::after {
+            content: ''; position: absolute; top: 0; bottom: 0; width: 24px;
+            z-index: 2; pointer-events: none;
+        }
+        .bn-existing-tags-viewport::before {
+            left: 0;
+            background: linear-gradient(90deg, #fff 0%, transparent 100%);
+        }
+        .bn-existing-tags-viewport::after {
+            right: 0;
+            background: linear-gradient(270deg, #fff 0%, transparent 100%);
+        }
+        .bn-existing-tags-track {
+            display: flex; flex-wrap: nowrap; gap: 4px;
+            width: max-content;
+            will-change: transform;
+        }
+        .bn-existing-tags-track.is-resetting { transition: none; }
+        .bn-existing-tag {
+            display: inline-flex; align-items: center; padding: 2px 8px; height: 20px;
+            font-size: 11px; color: #fff; border-radius: 10px; cursor: pointer;
+            transition: all 0.15s; white-space: nowrap; opacity: 0.8;
+            flex-shrink: 0;
+        }
+        .bn-existing-tag:hover { opacity: 1; transform: scale(1.05); }
+        .bn-existing-scrollbar {
+            position: relative; width: 100%; height: 10px; margin-top: 4px;
+            background: #005580; border-radius: 5px; cursor: pointer; overflow: hidden;
+        }
+        .bn-existing-scrollbar-thumb {
+            position: absolute; top: -1px; height: 12px;
+            background: linear-gradient(90deg, #006daa, #00b4d8);
+            border-radius: 6px; cursor: grab;
+            touch-action: none; z-index: 1;
+        }
+        .bn-existing-scrollbar-thumb:hover { filter: brightness(1.15); }
+        .bn-existing-scrollbar-thumb:active { cursor: grabbing; }
+        .bn-existing-scrollbar-thumb.snake-r { background: linear-gradient(90deg, var(--tail-c), var(--head-c)); }
+        .bn-existing-scrollbar-thumb.snake-l { background: linear-gradient(270deg, var(--tail-c), var(--head-c)); }
+        .bn-existing-scrollbar-thumb.s-head-r { border-radius: 6px; }
+        .bn-existing-scrollbar-thumb.s-tail-r { border-radius: 6px 0 0 6px; }
+        .bn-existing-scrollbar-thumb.s-head-l { border-radius: 6px; }
+        .bn-existing-scrollbar-thumb.s-tail-l { border-radius: 0 6px 6px 0; }
         .bn-tag-hint kbd {
             display: inline-flex; align-items: center; justify-content: center;
             min-width: 20px; height: 18px; padding: 0 4px;
             background: #f1f2f3; border: 1px solid #e3e5e7; border-radius: 4px;
             font-size: 11px; font-family: inherit; color: #61666d;
         }
+        .bn-tag-input-disabled .bn-tag-input,
+        .bn-tag-input-disabled .bn-tag-counter,
+        .bn-tag-input-disabled .bn-tag-hint {
+            pointer-events: none; opacity: 0.4;
+        }
+
+        /* #号标签检索模式 */
+        .bn-search-hint {
+            font-size: 11px; color: #00a1d6; margin-top: 4px; display: none;
+            align-items: center; gap: 4px;
+        }
+        .bn-search-hint svg { width: 12px; height: 12px; flex-shrink: 0; }
+        .bn-existing-tag.search-hidden { display: none !important; }
+        .bn-existing-tag.search-selected { opacity: 1 !important; filter: none !important; }
+        .bn-existing-tag.search-dim { opacity: 0.3 !important; filter: saturate(0.3); }
+        .bn-empty-search {
+            font-size: 11px; color: #9499a0; text-align: center;
+            padding: 8px 0; display: none;
+        }
 
         /* 颜色选择弹窗 */
         .bn-color-popup {
-            position: absolute; top: calc(100% + 4px); left: 0;
-            background: #fff; border-radius: 12px;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.12); padding: 14px; z-index: 100; width: 220px;
+            position: fixed;
+            background: #fff; border-radius: 10px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.12); padding: 6px; z-index: 100; width: 190px;
             animation: bn-popup-in 0.2s ease;
-            max-height: 360px; overflow-y: auto;
+            max-height: 280px; overflow-y: auto;
+            scrollbar-width: none; -ms-overflow-style: none;
         }
+        .bn-color-popup::-webkit-scrollbar { display: none; }
         @keyframes bn-popup-in { from { transform: translateY(-8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
         @keyframes bn-toast-in { from { transform: translateX(-50%) translateY(-10px); opacity: 0; } to { transform: translateX(-50%) translateY(0); opacity: 1; } }
-        .bn-color-title { font-size: 12px; color: #61666d; margin-bottom: 10px; font-weight: 500; }
-        .bn-color-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+        .bn-color-title { font-size: 11px; color: #61666d; margin-bottom: 3px; font-weight: 500; }
+        .bn-color-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
         .bn-color-item {
-            width: 30px; height: 30px; border-radius: 50%; cursor: pointer;
+            width: 20px; height: 20px; border-radius: 50%; cursor: pointer;
             border: 2px solid transparent; position: relative; transition: all 0.2s;
         }
         .bn-color-item:hover { transform: scale(1.2); z-index: 1; }
@@ -403,7 +482,10 @@
             .bn-tag-input::placeholder { color: #666; }
             .bn-tag-hint { color: #777; }
             .bn-tag-hint kbd { background: #333; border-color: #444; color: #aaa; }
+            .bn-tag-editing { background: #222226 !important; border-color: #00a1d6; }
+            .bn-tag-editing input { color: #e1e1e1; }
             .bn-color-dot { border-color: #333; box-shadow: 0 0 0 1px #444; }
+            .bn-color-dot-hint::after { background: #e1e1e1; color: #18191c; }
             .bn-color-popup { background: #2a2a2e; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
             .bn-color-title { color: #aaa; }
             .bn-color-item.active { border-color: #e1e1e1; }
@@ -423,13 +505,19 @@
             .bn-search-input { background: #2a2a2e; color: #e1e1e1; border-color: #444; }
             .bn-search-input:focus { border-color: #00a1d6; }
             .bn-search-icon { color: #666; }
+            .bn-existing-tags-viewport::before { background: linear-gradient(90deg, #222226 0%, transparent 100%); }
+            .bn-existing-tags-viewport::after { background: linear-gradient(270deg, #222226 0%, transparent 100%); }
+            .bn-existing-scrollbar { background: #003d5c; }
+            .bn-existing-scrollbar-thumb { background: linear-gradient(90deg, #005580, #0099cc); }
+            .bn-existing-scrollbar-thumb:hover { filter: brightness(1.15); }
+            .bn-search-hint { color: #00c8f0; }
         }
     `);
 
     // ==================== 数据层 ====================
     function _loadFromStorage() {
         let gmNotes = {};
-        try { const r = GM_getValue(STORAGE_KEY, ''); if (r) gmNotes = JSON.parse(r); } catch {}
+        try { const r = GM_getValue(STORAGE_KEY, ''); if (r) gmNotes = JSON.parse(r); } catch (e) { console.warn('[BN] _loadFromStorage parse error:', e); }
         return gmNotes;
     }
 
@@ -474,7 +562,7 @@
             }
             // 清除 localStorage，统一使用 GM 存储
             localStorage.removeItem(STORAGE_KEY);
-        } catch {}
+        } catch (e) { console.warn('[BN] migrateFromLocalStorage error:', e); }
     }
 
     function getNote(uid) { return loadNotes()[uid] || null; }
@@ -493,15 +581,29 @@
 
     // 最近使用的颜色
     function getRecentColors() {
-        try { return JSON.parse(GM_getValue(RECENT_COLORS_KEY, '[]')); } catch { return []; }
+        try { return JSON.parse(GM_getValue(RECENT_COLORS_KEY, '[]')); } catch (e) { console.warn('[BN] getRecentColors parse error:', e); return []; }
     }
 
     function addRecentColor(color) {
         let colors = getRecentColors();
         colors = colors.filter(c => c !== color);
         colors.unshift(color);
-        if (colors.length > 6) colors = colors.slice(0, 6);
+        if (colors.length > 5) colors = colors.slice(0, 5);
         GM_setValue(RECENT_COLORS_KEY, JSON.stringify(colors));
+    }
+
+    function getAllUniqueTags() {
+        const notes = loadNotes();
+        const tagMap = new Map();
+        Object.values(notes).forEach(note => {
+            if (note.tags) {
+                note.tags.forEach(tag => {
+                    const key = tag.text + '|' + tag.color;
+                    if (!tagMap.has(key)) tagMap.set(key, tag);
+                });
+            }
+        });
+        return Array.from(tagMap.values());
     }
 
     // Toast 提示
@@ -520,7 +622,13 @@
         t.setAttribute('aria-live', 'polite');
         const icon = TOAST_ICONS[type] || TOAST_ICONS.info;
         const bg = TOAST_COLORS[type] || TOAST_COLORS.info;
-        t.innerHTML = `<span style="display:flex;align-items:center;gap:6px;">${icon}<span>${msg}</span></span>`;
+        const wrap = document.createElement('span');
+        wrap.style.cssText = 'display:flex;align-items:center;gap:6px;';
+        wrap.innerHTML = icon;
+        const msgSpan = document.createElement('span');
+        msgSpan.textContent = msg;
+        wrap.appendChild(msgSpan);
+        t.appendChild(wrap);
         Object.assign(t.style, {
             position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)',
             background: bg, color: '#fff', padding: '10px 20px',
@@ -640,6 +748,14 @@
         if (nameEl.nextElementSibling?.classList?.contains('bili-note-wrapper')) return;
         const note = getNote(uid);
         if (!note) return;
+        // 保存原始名字，用于删除备注时恢复
+        if (!nameEl.dataset.bnOrigName) nameEl.dataset.bnOrigName = nameEl.textContent.trim();
+        // 替换页面上的用户名为备注中保存的名字
+        if (note.name) {
+            nameEl.textContent = note.name;
+        } else if (nameEl.dataset.bnOrigName) {
+            nameEl.textContent = nameEl.dataset.bnOrigName;
+        }
 
         const hasTags = note.tags && note.tags.length > 0;
         const hasText = note.text;
@@ -694,38 +810,46 @@
 
         nameEl.insertAdjacentElement('afterend', wrapper);
 
-        // tooltip 单独挂到 body 上，用 fixed 定位，不受父元素裁剪
-        if (fullText.length > 15) {
-            const tooltip = document.createElement('div');
-            tooltip.className = 'bili-note-tooltip-fixed';
-            let tooltipHtml = '';
-            if (hasTags) {
-                note.tags.forEach((tag, i) => {
-                    if (i > 0) tooltipHtml += '<span class="bn-tt-sep">·</span>';
-                    tooltipHtml += `<span class="bn-tt-tag" style="background:${safeAttr(tag.color)}">${ICONS.tag}<span>${escapeHtml(tag.text)}</span></span>`;
-                });
-            }
-            if (hasText) {
-                if (hasTags) tooltipHtml += '<span class="bn-tt-sep">·</span>';
-                tooltipHtml += `<span class="bn-tt-text">${escapeHtml(note.text)}</span>`;
-            }
-            tooltip.innerHTML = tooltipHtml;
-            document.body.appendChild(tooltip);
-            wrapper._tooltip = tooltip;
+        attachTooltip(wrapper, note, hasTags, hasText);
+    }
 
-            wrapper.querySelectorAll('.bili-note-tag, .bili-note-text').forEach(el => {
-                el.addEventListener('mouseenter', () => {
-                    const rect = el.getBoundingClientRect();
-                    tooltip.style.left = rect.left + 'px';
-                    tooltip.style.bottom = (window.innerHeight - rect.top + 8) + 'px';
-                    tooltip.style.top = 'auto';
-                    tooltip.style.display = 'flex';
-                });
-                el.addEventListener('mouseleave', () => {
-                    tooltip.style.display = 'none';
-                });
+    // tooltip 公共逻辑：挂到 body 上，用 fixed 定位，不受父元素裁剪
+    function attachTooltip(wrapper, note, hasTags, hasText) {
+        const fullParts = [];
+        if (hasTags) note.tags.forEach(t => fullParts.push(t.text));
+        if (hasText) fullParts.push(note.text);
+        const fullText = fullParts.join(' · ');
+        if (fullText.length <= 15) return;
+
+        const tooltip = document.createElement('div');
+        tooltip.className = 'bili-note-tooltip-fixed';
+        let html = '';
+        if (hasTags) {
+            note.tags.forEach((tag, i) => {
+                if (i > 0) html += '<span class="bn-tt-sep">·</span>';
+                html += `<span class="bn-tt-tag" style="background:${safeAttr(tag.color)}">${ICONS.tag}<span>${escapeHtml(tag.text)}</span></span>`;
             });
         }
+        if (hasText) {
+            if (hasTags) html += '<span class="bn-tt-sep">·</span>';
+            html += `<span class="bn-tt-text">${escapeHtml(note.text)}</span>`;
+        }
+        tooltip.innerHTML = html;
+        document.body.appendChild(tooltip);
+        wrapper._tooltip = tooltip;
+
+        wrapper.querySelectorAll('.bili-note-tag, .bili-note-text').forEach(el => {
+            el.addEventListener('mouseenter', () => {
+                const rect = el.getBoundingClientRect();
+                tooltip.style.left = rect.left + 'px';
+                tooltip.style.bottom = (window.innerHeight - rect.top + 8) + 'px';
+                tooltip.style.top = 'auto';
+                tooltip.style.display = 'flex';
+            });
+            el.addEventListener('mouseleave', () => {
+                tooltip.style.display = 'none';
+            });
+        });
     }
 
     // ==================== 页面处理 ====================
@@ -739,7 +863,8 @@
         '.user-name',            // 通用
         '.info-name',            // 信息面板
         '.relation-card-info__uname', // 关注列表
-        '.h-name',               // space 个人主页用户名
+        '.h-name',               // space 个人主页用户名（旧版）
+        '.nickname',             // space 个人主页用户名（新版）
         '.upinfo .name',         // 搜索结果用户名
         '.uname',                // 搜索结果用户名（备选）
         '.user-card .name',      // 用户卡片
@@ -760,7 +885,19 @@
         if (!note) return;
         const hasTags = note.tags && note.tags.length > 0;
         const hasText = note.text;
-        if (!hasTags && !hasText) return;
+        const hasName = !!note.name;
+        if (!hasTags && !hasText && !hasName) return;
+
+        // 替换用户名（尝试多种选择器，适配 B 站改版）
+        const nameEl = document.querySelector('.h-name, .nickname, .h-info .name, [class*="uname"]');
+        if (nameEl) {
+            if (!nameEl.dataset.bnOrigName) nameEl.dataset.bnOrigName = nameEl.textContent.trim();
+            if (hasName) {
+                nameEl.textContent = note.name;
+            } else if (nameEl.dataset.bnOrigName) {
+                nameEl.textContent = nameEl.dataset.bnOrigName;
+            }
+        }
 
         // 找简介/签名元素（尝试多种选择器）
         const descEl = document.querySelector('.h-sign, .h-desc, .desc, .sign, [class*="sign"], [class*="desc"]');
@@ -768,13 +905,10 @@
         if (descEl.getAttribute(PROCESSED_ATTR)) return;
         if (descEl.nextElementSibling?.classList?.contains('bili-note-wrapper')) return;
 
-        descEl.setAttribute(PROCESSED_ATTR, '1');
+        // 仅有用户名修改时不需要注入标签/备注区域
+        if (!hasTags && !hasText) return;
 
-        // 构建备注
-        const fullParts = [];
-        if (hasTags) note.tags.forEach(t => fullParts.push(t.text));
-        if (hasText) fullParts.push(note.text);
-        const fullText = fullParts.join(' · ');
+        descEl.setAttribute(PROCESSED_ATTR, '1');
 
         const wrapper = document.createElement('span');
         wrapper.className = 'bili-note-wrapper';
@@ -801,38 +935,7 @@
 
         descEl.insertAdjacentElement('afterend', wrapper);
 
-        // tooltip 挂到 body 上
-        if (fullText.length > 15) {
-            const tooltip = document.createElement('div');
-            tooltip.className = 'bili-note-tooltip-fixed';
-            let tooltipHtml = '';
-            if (hasTags) {
-                note.tags.forEach((tag, i) => {
-                    if (i > 0) tooltipHtml += '<span class="bn-tt-sep">·</span>';
-                    tooltipHtml += `<span class="bn-tt-tag" style="background:${safeAttr(tag.color)}">${ICONS.tag}<span>${escapeHtml(tag.text)}</span></span>`;
-                });
-            }
-            if (hasText) {
-                if (hasTags) tooltipHtml += '<span class="bn-tt-sep">·</span>';
-                tooltipHtml += `<span class="bn-tt-text">${escapeHtml(note.text)}</span>`;
-            }
-            tooltip.innerHTML = tooltipHtml;
-            document.body.appendChild(tooltip);
-            wrapper._tooltip = tooltip;
-
-            wrapper.querySelectorAll('.bili-note-tag, .bili-note-text').forEach(el => {
-                el.addEventListener('mouseenter', () => {
-                    const rect = el.getBoundingClientRect();
-                    tooltip.style.left = rect.left + 'px';
-                    tooltip.style.bottom = (window.innerHeight - rect.top + 8) + 'px';
-                    tooltip.style.top = 'auto';
-                    tooltip.style.display = 'flex';
-                });
-                el.addEventListener('mouseleave', () => {
-                    tooltip.style.display = 'none';
-                });
-            });
-        }
+        attachTooltip(wrapper, note, hasTags, hasText);
     }
 
     function processPage() {
@@ -889,7 +992,7 @@
                 if (!urlMatch) return;
                 e.preventDefault();
                 const uid = urlMatch[1];
-                const userName = document.querySelector('.h-name')?.textContent?.trim() || '';
+                const userName = document.querySelector('.h-name, .nickname, .h-info .name, [class*="uname"]')?.textContent?.trim() || '';
                 setTimeout(() => {
                     const note = getNote(uid);
                     showModal(uid, userName, note);
@@ -922,6 +1025,7 @@
 
     // ==================== 弹窗 ====================
     let currentModal = null;
+    let _editingTagRef = null;
 
     function showModal(uid, userName, noteData = null) {
         if (currentModal) currentModal.remove();
@@ -946,34 +1050,27 @@
             <div class="bn-body">
                 <div class="bn-row">
                     <span class="bn-label">用户</span>
-                    <input type="text" class="bn-input" readonly value="${safeAttr(userName || 'UID: ' + uid)}">
+                    <input type="text" class="bn-input" id="bn-username" value="${safeAttr(noteData?.name || userName)}">
                 </div>
                 <div class="bn-row">
                     <span class="bn-label">标签</span>
                     <div class="bn-tags-area">
                         <div class="bn-tags-box" id="bn-tags"></div>
                         <div class="bn-tag-input-row">
-                            <div class="bn-color-dot" id="bn-dot" title="点击选择颜色"></div>
+                            <div class="bn-tag-input-left">
+                                <div class="bn-color-dot" id="bn-dot" title="点击选择颜色"></div>
+                                <span class="bn-tag-counter" id="bn-tag-counter">0/${TAG_MAX_LENGTH}</span>
+                            </div>
                             <textarea class="bn-tag-input" id="bn-tag-input" placeholder="输入标签文字，回车添加" rows="1" maxlength="${TAG_MAX_LENGTH}"></textarea>
-                            <span class="bn-tag-counter" id="bn-tag-counter">0/${TAG_MAX_LENGTH}</span>
                             <div class="bn-color-popup" id="bn-color-popup" style="display:none;"></div>
                         </div>
-                        <div class="bn-tag-hint">输入文字后按 <kbd>Enter</kbd> 添加标签（最多 ${TAG_MAX_LENGTH} 字），点击圆点选择颜色</div>
+                        <div class="bn-tag-hint">输入文字后按 <kbd>Enter</kbd> 添加标签<br>双击标签二次编辑 <kbd>#</kbd> 唤起检索</div>
+                        <div class="bn-existing-tags" id="bn-existing-tags"></div>
                     </div>
                 </div>
                 <div class="bn-row">
                     <span class="bn-label">备注</span>
-                    <div class="bn-tags-area">
-                        <textarea class="bn-input" id="bn-text" placeholder="备注内容" rows="1">${escapeHtml(noteData?.text || '')}</textarea>
-                        <div class="bn-tag-hint" style="margin-top: 6px;">
-                            <span style="color: #9499a0; font-size: 11px;">快速添加：</span>
-                            <span class="bn-template-btn" data-text="大佬">大佬</span>
-                            <span class="bn-template-btn" data-text="同好">同好</span>
-                            <span class="bn-template-btn" data-text="广告">广告</span>
-                            <span class="bn-template-btn" data-text="水友">水友</span>
-                            <span class="bn-template-btn" data-text="UP主">UP主</span>
-                        </div>
-                    </div>
+                    <textarea class="bn-input" id="bn-text" placeholder="备注内容" rows="1">${escapeHtml(noteData?.text || '')}</textarea>
                 </div>
             </div>
             <div class="bn-footer">
@@ -1006,6 +1103,7 @@
 
         let editingTags = [...tags];
         let selectedColor = PRESET_COLORS[0].value;
+        let _colorDotMouseDown = false;
         const tagsBox = modal.querySelector('#bn-tags');
         const tagInput = modal.querySelector('#bn-tag-input');
         const colorPopup = modal.querySelector('#bn-color-popup');
@@ -1024,17 +1122,345 @@
         tagInput.addEventListener('input', () => autoResize(tagInput));
         textInput.addEventListener('input', () => autoResize(textInput));
 
-        // 备注模板按钮
-        modal.querySelectorAll('.bn-template-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const text = btn.dataset.text;
-                if (textInput && text) {
-                    textInput.value = text;
-                    autoResize(textInput);
-                    textInput.focus();
+        // 已有标签快捷添加
+        const existingTagsBox = modal.querySelector('#bn-existing-tags');
+        const allTags = getAllUniqueTags();
+        if (allTags.length > 0) {
+            existingTagsBox.innerHTML = `
+                <div class="bn-existing-tags-viewport">
+                    <div class="bn-existing-tags-track">${allTags.map(t => `<span class="bn-existing-tag" data-text="${safeAttr(t.text)}" data-color="${safeAttr(t.color)}" style="background-color:${safeAttr(t.color)}">${escapeHtml(t.text)}</span>`).join('')}</div>
+                </div>
+                <div class="bn-existing-scrollbar"><div class="bn-existing-scrollbar-thumb bn-existing-scrollbar-thumb-l"></div><div class="bn-existing-scrollbar-thumb bn-existing-scrollbar-thumb-r"></div></div>
+            `;
+
+            // 跑马灯无缝循环滚动逻辑
+            const scrollContainer = existingTagsBox.querySelector('.bn-existing-tags-viewport');
+            const scrollTrack = existingTagsBox.querySelector('.bn-existing-tags-track');
+            const scrollbar = existingTagsBox.querySelector('.bn-existing-scrollbar');
+            const thumbL = existingTagsBox.querySelector('.bn-existing-scrollbar-thumb-l');
+            const thumbR = existingTagsBox.querySelector('.bn-existing-scrollbar-thumb-r');
+
+            // 复制一份内容实现无缝循环
+            const originalHTML = scrollTrack.innerHTML;
+            scrollTrack.innerHTML = originalHTML + originalHTML;
+
+            // 事件委托：点击标签快速添加
+            scrollTrack.addEventListener('click', (e) => {
+                const tag = e.target.closest('.bn-existing-tag');
+                if (!tag) return;
+                const text = tag.dataset.text;
+                const color = tag.dataset.color;
+                if (text && !editingTags.some(t => t.text === text && t.color === color)) {
+                    editingTags.push({ text, color });
+                    renderTags();
                 }
             });
-        });
+
+            let scrollPos = 0;
+            let lastScrollPos = 0;
+            let snakeDir = 1;
+            let autoScrollTimer = null;
+            const SCROLL_SPEED = 0.8;
+            const TICK_INTERVAL = 30;
+
+            function getOriginalWidth() {
+                return scrollTrack.scrollWidth / 2;
+            }
+
+            function getContainerWidth() {
+                return scrollContainer.offsetWidth;
+            }
+
+            function updateThumbSegments() {
+                const trackWidth = scrollbar.offsetWidth;
+                const origWidth = getOriginalWidth();
+                const containerWidth = getContainerWidth();
+                const scrollRange = origWidth - containerWidth;
+                if (scrollRange <= 0) {
+                    thumbL.style.width = '100%';
+                    thumbL.style.left = '0px';
+                    thumbL.style.display = '';
+                    thumbR.style.display = 'none';
+                    return;
+                }
+                const thumbWidth = Math.max(40, trackWidth * containerWidth / origWidth);
+                const offset = (scrollPos / scrollRange) * trackWidth;
+                const pos = ((offset % trackWidth) + trackWidth) % trackWidth;
+
+                const dirClass = snakeDir > 0 ? 'snake-r' : 'snake-l';
+                const headTailColor = snakeDir > 0 ? '#005580' : '#00b4d8';
+                const headBrightColor = snakeDir > 0 ? '#00c8f0' : '#7de8ff';
+                const tailBrightColor = snakeDir > 0 ? '#00b4d8' : '#005580';
+
+                if (pos + thumbWidth <= trackWidth) {
+                    thumbL.className = 'bn-existing-scrollbar-thumb ' + dirClass;
+                    thumbL.style.left = pos + 'px';
+                    thumbL.style.width = thumbWidth + 'px';
+                    thumbL.style.setProperty('--tail-c', headTailColor);
+                    thumbL.style.setProperty('--head-c', headBrightColor);
+                    thumbL.style.display = '';
+                    thumbR.style.display = 'none';
+                } else {
+                    const rightW = trackWidth - pos;
+                    const leftW = thumbWidth - rightW;
+
+                    thumbL.className = 'bn-existing-scrollbar-thumb ' + dirClass + ' s-head-r';
+                    thumbL.style.left = '0px';
+                    thumbL.style.width = leftW + 'px';
+                    thumbL.style.setProperty('--tail-c', tailBrightColor);
+                    thumbL.style.setProperty('--head-c', headBrightColor);
+                    thumbL.style.display = '';
+
+                    thumbR.className = 'bn-existing-scrollbar-thumb ' + dirClass + ' s-tail-r';
+                    thumbR.style.left = pos + 'px';
+                    thumbR.style.width = rightW + 'px';
+                    thumbR.style.setProperty('--tail-c', headTailColor);
+                    thumbR.style.setProperty('--head-c', tailBrightColor);
+                    thumbR.style.display = '';
+                }
+            }
+
+            function setScroll(pos) {
+                const origWidth = getOriginalWidth();
+                scrollPos = ((pos % origWidth) + origWidth) % origWidth;
+                scrollTrack.style.transform = `translateX(-${scrollPos}px)`;
+                updateThumbSegments();
+            }
+
+            // 自定义滚动条拖拽
+            let dragging = false, dragStartX = 0, dragStartPos = 0;
+            function onDragStart(e) {
+                e.preventDefault(); e.stopPropagation();
+                dragging = true;
+                dragStartX = e.touches ? e.touches[0].clientX : e.clientX;
+                dragStartPos = scrollPos;
+                stopAutoScroll();
+                document.addEventListener('mousemove', onDragMove);
+                document.addEventListener('mouseup', onDragEnd);
+                document.addEventListener('touchmove', onDragMove, { passive: false });
+                document.addEventListener('touchend', onDragEnd);
+            }
+
+            thumbL.addEventListener('mousedown', onDragStart);
+            thumbR.addEventListener('mousedown', onDragStart);
+            thumbL.addEventListener('touchstart', onDragStart, { passive: false });
+            thumbR.addEventListener('touchstart', onDragStart, { passive: false });
+
+            function onDragMove(e) {
+                if (!dragging) return;
+                if (e.cancelable) e.preventDefault();
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const trackWidth = scrollbar.offsetWidth;
+                const origWidth = getOriginalWidth();
+                const containerWidth = getContainerWidth();
+                const scrollRange = origWidth - containerWidth;
+                if (scrollRange <= 0) return;
+                const thumbWidth = Math.max(40, trackWidth * containerWidth / origWidth);
+                const thumbRange = trackWidth - thumbWidth;
+                const dx = clientX - dragStartX;
+                const posDelta = thumbRange > 0 ? dx / thumbRange * scrollRange : 0;
+                snakeDir = dx >= 0 ? 1 : -1;
+                setScroll(dragStartPos + posDelta);
+            }
+
+            function onDragEnd() {
+                dragging = false;
+                document.removeEventListener('mousemove', onDragMove);
+                document.removeEventListener('mouseup', onDragEnd);
+                document.removeEventListener('touchmove', onDragMove);
+                document.removeEventListener('touchend', onDragEnd);
+                startAutoScroll();
+            }
+
+            // 点击轨道跳转
+            scrollbar.addEventListener('click', (e) => {
+                if (e.target.classList.contains('bn-existing-scrollbar-thumb')) return;
+                const origWidth = getOriginalWidth();
+                const containerWidth = getContainerWidth();
+                const scrollRange = origWidth - containerWidth;
+                if (scrollRange <= 0) return;
+                const trackWidth = scrollbar.offsetWidth;
+                const rect = scrollbar.getBoundingClientRect();
+                const clickX = e.clientX - rect.left;
+                const pos = clickX / trackWidth * scrollRange;
+                setScroll(pos);
+                stopAutoScroll();
+                startAutoScroll();
+            });
+
+            function startAutoScroll() {
+                stopAutoScroll();
+                const origWidth = getOriginalWidth();
+                if (origWidth <= getContainerWidth()) return;
+                snakeDir = 1;
+                autoScrollTimer = setInterval(() => {
+                    lastScrollPos = scrollPos;
+                    scrollPos += SCROLL_SPEED;
+                    const origWidth = getOriginalWidth();
+                    if (scrollPos >= origWidth) {
+                        scrollTrack.classList.add('is-resetting');
+                        scrollPos = 0;
+                        scrollTrack.style.transform = 'translateX(0px)';
+                        scrollTrack.offsetHeight;
+                        scrollTrack.classList.remove('is-resetting');
+                    } else {
+                        scrollTrack.style.transform = `translateX(-${scrollPos}px)`;
+                    }
+                    updateThumbSegments();
+                }, TICK_INTERVAL);
+            }
+
+            function stopAutoScroll() {
+                if (autoScrollTimer) {
+                    clearInterval(autoScrollTimer);
+                    autoScrollTimer = null;
+                }
+            }
+
+            existingTagsBox.addEventListener('mouseenter', stopAutoScroll);
+            existingTagsBox.addEventListener('mouseleave', startAutoScroll);
+
+            updateThumbSegments();
+            startAutoScroll();
+
+            // ========== #号标签检索模式 ==========
+            if (tagInput) {
+                let searchActive = false;
+                let searchKeyword = '';
+                let searchSelectedIdx = -1;
+                let searchMatchEls = [];
+
+                const searchHint = document.createElement('div');
+                searchHint.className = 'bn-search-hint';
+                searchHint.innerHTML = `${ICONS.search}<span>正在检索已有标签</span>`;
+                tagInput.closest('.bn-tags-area').appendChild(searchHint);
+
+                function getHashInfo() {
+                    const val = tagInput.value;
+                    const idx = val.indexOf('#');
+                    if (idx === -1) {
+                        const idx2 = val.indexOf('＃');
+                        if (idx2 === -1) return null;
+                        return { kw: val.substring(idx2 + 1) };
+                    }
+                    return { kw: val.substring(idx + 1) };
+                }
+
+                function enterSearchMode() {
+                    if (searchActive) return;
+                    searchActive = true;
+                    searchHint.style.display = 'flex';
+                }
+
+                function exitSearchMode() {
+                    if (!searchActive) return;
+                    searchActive = false;
+                    searchKeyword = '';
+                    searchSelectedIdx = -1;
+                    searchHint.style.display = 'none';
+                    const viewport = existingTagsBox.querySelector('.bn-existing-tags-viewport');
+                    if (viewport) {
+                        viewport.querySelectorAll('.bn-existing-tag').forEach(el => {
+                            el.classList.remove('search-hidden', 'search-dim', 'search-selected');
+                        });
+                    }
+                    const emptyEl = existingTagsBox.querySelector('.bn-empty-search');
+                    if (emptyEl) emptyEl.style.display = 'none';
+                }
+
+                function doSearch() {
+                    const info = getHashInfo();
+                    if (!info) { exitSearchMode(); return; }
+                    if (!searchActive) enterSearchMode();
+                    searchKeyword = info.kw.toLowerCase();
+                    searchSelectedIdx = -1;
+                    searchMatchEls = [];
+
+                    const viewport = existingTagsBox.querySelector('.bn-existing-tags-viewport');
+                    if (!viewport) return;
+                    const allEls = viewport.querySelectorAll('.bn-existing-tag');
+
+                    allEls.forEach(el => {
+                        el.classList.remove('search-hidden', 'search-dim', 'search-selected');
+                        const text = (el.dataset.text || '').toLowerCase();
+                        if (searchKeyword === '' || text.includes(searchKeyword)) {
+                            searchMatchEls.push(el);
+                        } else {
+                            el.classList.add('search-hidden');
+                        }
+                    });
+
+                    let emptyEl = existingTagsBox.querySelector('.bn-empty-search');
+                    if (!emptyEl) {
+                        emptyEl = document.createElement('div');
+                        emptyEl.className = 'bn-empty-search';
+                        emptyEl.textContent = '无匹配标签';
+                        existingTagsBox.querySelector('.bn-existing-tags-viewport').parentElement.appendChild(emptyEl);
+                    }
+                    emptyEl.style.display = searchMatchEls.length === 0 ? 'block' : 'none';
+
+                    if (searchMatchEls.length > 0) {
+                        searchSelectedIdx = 0;
+                        searchMatchEls.forEach(el => el.classList.add('search-dim'));
+                        searchMatchEls[0].classList.remove('search-dim');
+                        searchMatchEls[0].classList.add('search-selected');
+                    } else {
+                        allEls.forEach(el => el.classList.add('search-dim'));
+                    }
+                }
+
+                function selectMatch(idx) {
+                    if (searchMatchEls.length === 0) return;
+                    searchMatchEls.forEach(el => {
+                        el.classList.remove('search-selected', 'search-dim');
+                        el.classList.add('search-dim');
+                    });
+                    searchSelectedIdx = ((idx % searchMatchEls.length) + searchMatchEls.length) % searchMatchEls.length;
+                    searchMatchEls[searchSelectedIdx].classList.remove('search-dim');
+                    searchMatchEls[searchSelectedIdx].classList.add('search-selected');
+                }
+
+                function checkCursor() {
+                    const info = getHashInfo();
+                    if (!info) { exitSearchMode(); return; }
+                    doSearch();
+                }
+
+                tagInput.addEventListener('input', checkCursor);
+                tagInput.addEventListener('click', checkCursor);
+
+                tagInput.addEventListener('keydown', (e) => {
+                    if (!searchActive) return;
+                    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        if (searchMatchEls.length === 0) return;
+                        if (e.key === 'ArrowDown') selectMatch(searchSelectedIdx + 1);
+                        else selectMatch(searchSelectedIdx - 1);
+                    }
+                    if (e.key === 'Escape') {
+                        e.preventDefault();
+                        exitSearchMode();
+                    }
+                    if (e.key === 'Enter' && !e.shiftKey && searchSelectedIdx >= 0 && searchMatchEls.length > 0) {
+                        e.preventDefault();
+                        const el = searchMatchEls[searchSelectedIdx];
+                        const text = el.dataset.text;
+                        const color = el.dataset.color;
+                        if (text && !editingTags.some(t => t.text === text && t.color === color)) {
+                            editingTags.push({ text, color });
+                            renderTags();
+                        }
+                        tagInput.value = '';
+                        autoResize(tagInput);
+                        exitSearchMode();
+                    }
+                });
+
+                mask.addEventListener('mousedown', (e) => {
+                    if (searchActive && !tagInput.contains(e.target) && !e.target.closest('#bn-dot') && !(colorPopup && colorPopup.contains(e.target))) exitSearchMode();
+                });
+            }
+        }
 
         // 拖拽排序
         let dragIndex = null;
@@ -1072,8 +1498,13 @@
         }
 
         function renderTags() {
+            _editingTagRef = null;
+            colorDot.classList.remove('bn-color-dot-hint');
+            updateDot();
+            const inputRow = document.querySelector('.bn-tag-input-row');
+            if (inputRow) inputRow.classList.remove('bn-tag-input-disabled');
             tagsBox.innerHTML = editingTags.map((t, i) => `
-                <span class="bn-tag" style="background-color:${safeAttr(t.color)}">
+                <span class="bn-tag" style="background-color:${safeAttr(t.color)}" data-i="${i}">
                     <span>${escapeHtml(t.text)}</span>
                     <span class="bn-tag-del" data-i="${i}">${ICONS.close}</span>
                 </span>
@@ -1085,19 +1516,68 @@
                     renderTags();
                 });
             });
+            tagsBox.querySelectorAll('.bn-tag').forEach(tag => {
+                tag.addEventListener('dblclick', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    startEditTag(parseInt(tag.dataset.i), tag);
+                });
+            });
             setupDrag();
         }
 
+        function startEditTag(index, tagEl) {
+            const tag = editingTags[index];
+            if (!tag) return;
+            tagEl.classList.add('bn-tag-editing');
+            tagEl.style.backgroundColor = '#fff';
+            tagEl.innerHTML = `<input type="text" value="${safeAttr(tag.text)}" maxlength="${TAG_MAX_LENGTH}">`;
+            const input = tagEl.querySelector('input');
+            input.focus();
+            input.select();
+
+            _editingTagRef = { index, tag, input };
+            colorDot.classList.add('bn-color-dot-hint');
+            colorDot.style.backgroundColor = tag.color;
+            document.querySelector('.bn-tag-input-row').classList.add('bn-tag-input-disabled');
+
+            let committed = false;
+            function commit() {
+                if (committed) return;
+                committed = true;
+                const newText = input.value.trim();
+                if (newText) {
+                    editingTags[index] = { text: newText, color: tag.color };
+                }
+                renderTags();
+            }
+            function cancel() {
+                committed = true;
+                renderTags();
+            }
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); commit(); }
+                if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+            });
+            input.addEventListener('blur', () => {
+                requestAnimationFrame(() => {
+                    if (_colorDotMouseDown || !input.parentNode) return;
+                    commit();
+                });
+            });
+        }
+
         function showColorPopup() {
+            colorDot.classList.remove('bn-color-dot-hint');
             const recentColors = getRecentColors();
             colorPopup.innerHTML = `
                 <div class="bn-color-title">自定义颜色</div>
-                <div style="margin-bottom: 10px;">
-                    <input type="color" id="bn-custom-color" value="${safeAttr(selectedColor)}" style="width: 100%; height: 30px; border: 1px solid #e3e5e7; border-radius: 6px; cursor: pointer; padding: 0;">
+                <div style="margin-bottom: 4px;">
+                    <input type="color" id="bn-custom-color" value="${safeAttr(selectedColor)}" style="width: 100%; height: 22px; border: 1px solid #e3e5e7; border-radius: 4px; cursor: pointer; padding: 0;">
                 </div>
                 ${recentColors.length > 0 ? `
                     <div class="bn-color-title">最近使用</div>
-                    <div class="bn-color-grid" style="margin-bottom: 10px;">
+                    <div class="bn-color-grid" style="margin-bottom: 4px;">
                         ${recentColors.map(c => `
                             <div class="bn-color-item ${selectedColor === c ? 'active' : ''}"
                                  style="background-color:${safeAttr(c)}" data-color="${safeAttr(c)}" data-code="${safeAttr(c)}"></div>
@@ -1113,39 +1593,78 @@
                 </div>
             `;
             colorPopup.style.display = 'block';
+            const dotRect = colorDot.getBoundingClientRect();
+            let popupTop = dotRect.bottom + 4;
+            let popupLeft = dotRect.left;
+            if (popupTop + colorPopup.offsetHeight > window.innerHeight - 8) {
+                popupTop = dotRect.top - colorPopup.offsetHeight - 4;
+            }
+            if (popupLeft + colorPopup.offsetWidth > window.innerWidth - 8) {
+                popupLeft = window.innerWidth - colorPopup.offsetWidth - 8;
+            }
+            colorPopup.style.top = popupTop + 'px';
+            colorPopup.style.left = popupLeft + 'px';
             // 自定义颜色选择器
             const customColorInput = colorPopup.querySelector('#bn-custom-color');
             if (customColorInput) {
                 customColorInput.addEventListener('input', (e) => {
-                    selectedColor = e.target.value;
-                    addRecentColor(selectedColor);
-                    updateDot();
+                    if (_editingTagRef) {
+                        _editingTagRef.tag.color = e.target.value;
+                        colorDot.style.backgroundColor = e.target.value;
+                    } else {
+                        selectedColor = e.target.value;
+                        addRecentColor(selectedColor);
+                        updateDot();
+                    }
                     colorPopup.querySelectorAll('.bn-color-item').forEach(i => i.classList.remove('active'));
                 });
                 customColorInput.addEventListener('change', (e) => {
-                    selectedColor = e.target.value;
-                    addRecentColor(selectedColor);
-                    updateDot();
+                    if (_editingTagRef) {
+                        _editingTagRef.tag.color = e.target.value;
+                        colorDot.style.backgroundColor = e.target.value;
+                    } else {
+                        selectedColor = e.target.value;
+                        addRecentColor(selectedColor);
+                        updateDot();
+                    }
                     hideColorPopup();
-                    tagInput.focus();
+                    if (_editingTagRef && _editingTagRef.input) {
+                        _editingTagRef.input.focus();
+                    } else {
+                        tagInput.focus();
+                    }
                 });
             }
             colorPopup.querySelectorAll('.bn-color-item').forEach(item => {
                 item.addEventListener('click', () => {
-                    selectedColor = item.dataset.color;
-                    addRecentColor(selectedColor);
-                    updateDot();
+                    if (_editingTagRef) {
+                        _editingTagRef.tag.color = item.dataset.color;
+                        colorDot.style.backgroundColor = item.dataset.color;
+                    } else {
+                        selectedColor = item.dataset.color;
+                        addRecentColor(selectedColor);
+                        updateDot();
+                    }
                     colorPopup.querySelectorAll('.bn-color-item').forEach(i => i.classList.remove('active'));
                     item.classList.add('active');
                     hideColorPopup();
-                    tagInput.focus();
+                    if (_editingTagRef && _editingTagRef.input) {
+                        _editingTagRef.input.focus();
+                    } else {
+                        tagInput.focus();
+                    }
                 });
             });
         }
 
         function hideColorPopup() { colorPopup.style.display = 'none'; }
 
-        colorDot.addEventListener('click', e => { e.stopPropagation(); colorPopup.style.display === 'block' ? hideColorPopup() : showColorPopup(); });
+        colorDot.addEventListener('mousedown', () => { _colorDotMouseDown = true; });
+        colorDot.addEventListener('click', e => {
+            e.stopPropagation();
+            colorPopup.style.display === 'block' ? hideColorPopup() : showColorPopup();
+            setTimeout(() => { _colorDotMouseDown = false; }, 0);
+        });
         const _onDocClick = e => { if (!e.target.closest('.bn-tag-input-row')) hideColorPopup(); };
         document.addEventListener('click', _onDocClick);
 
@@ -1209,14 +1728,16 @@
 
         modal.querySelector('.bn-close').addEventListener('click', confirmClose);
         modal.querySelector('#bn-cancel').addEventListener('click', confirmClose);
-        mask.addEventListener('click', e => { if (e.target === mask) confirmClose(); });
 
         modal.querySelector('#bn-save').addEventListener('click', () => {
-            setNote(uid, {
-                name: userName,
-                tags: editingTags,
-                text: modal.querySelector('#bn-text').value.trim()
-            });
+            const newName = modal.querySelector('#bn-username').value.trim();
+            const noteData = { tags: editingTags, text: modal.querySelector('#bn-text').value.trim() };
+            if (newName) noteData.name = newName;
+            if (editingTags.length === 0 && !noteData.text) {
+                showToast('请至少添加一个标签或备注', 'warning');
+                return;
+            }
+            setNote(uid, noteData);
             _hasUnsavedChanges = false;
             refreshAll();
             closeModal();
@@ -1373,13 +1894,19 @@
                         }
                         const current = loadNotes();
                         const merged = { ...imported, ...current };
+                        const importedCount = Object.keys(imported).length;
+                        const overlappedCount = Object.keys(imported).filter(k => k in current).length;
                         saveNotes(merged);
                         _notesLoaded = false;
                         refreshAll();
-                        showToast(`已导入 ${Object.keys(imported).length} 条备注`);
+                        const hint = overlappedCount > 0
+                            ? `已导入 ${importedCount} 条备注（${overlappedCount} 条已有备注保留）`
+                            : `已导入 ${importedCount} 条备注`;
+                        showToast(hint);
                         // 刷新管理面板
                         showManageModal();
-                    } catch {
+                    } catch (e) {
+                        console.warn('[BN] import parse error:', e);
                         showToast('文件解析失败');
                     }
                 };
@@ -1450,8 +1977,20 @@
         };
 
         // MutationObserver 监听 DOM 变化（动态加载内容）
+        // 收窄到用户名可能出现的容器，避免播放器/广告等无关变化触发
+        const OBSERVE_SELECTORS = [
+            '.reply-list', '.comment-list',   // 评论区
+            '.dyn-list', '.dyn-space',        // 动态页
+            '.video-info', '.video-desc',     // 视频页
+            '.h-info', '.h-header',           // space 主页
+            '.member-list', '.relation-list', // 关注列表
+            '.contact-list',                  // 联系人
+            '.chat-list', '.chat-container',  // 聊天
+            '.search-page', '.search-result', // 搜索结果
+            '.feed-card', '.card-list',       // 信息流
+            '#app',                           // 兜底
+        ];
         const _observer = new MutationObserver((mutations) => {
-            // 过滤：仅在有新增节点时触发，且排除自身注入的元素
             let hasNewNodes = false;
             for (const m of mutations) {
                 if (m.type === 'childList' && m.addedNodes.length > 0) {
@@ -1466,7 +2005,14 @@
             }
             if (hasNewNodes) scheduleProcess(1500);
         });
-        _observer.observe(document.body, { childList: true, subtree: true });
+        const observeTargets = OBSERVE_SELECTORS
+            .map(sel => document.querySelector(sel))
+            .filter(Boolean);
+        observeTargets.forEach(el => _observer.observe(el, { childList: true, subtree: true }));
+        // 兜底：如果没找到任何已知容器，监听 body
+        if (observeTargets.length === 0) {
+            _observer.observe(document.body, { childList: true, subtree: true });
+        }
 
         document.addEventListener('contextmenu', handleContextMenu, true);
     }
