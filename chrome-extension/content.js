@@ -1155,9 +1155,23 @@
         currentModal = null;
     }
 
+    // ==================== 跨标签页同步 ====================
+    function _setupCrossTabSync() {
+        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+            chrome.storage.onChanged.addListener((changes, area) => {
+                if (area === 'local' && changes[STORAGE_KEY]) {
+                    _notesLoaded = false;
+                    _notesCache = null;
+                    refreshAll();
+                }
+            });
+        }
+    }
+
     // ==================== 初始化 ====================
     function init() {
         loadNotes().then(() => {
+            _setupCrossTabSync();
             setTimeout(processPage, 2000);
 
             const FIRST_USE_KEY = 'bilibili_notes_first_use_done';

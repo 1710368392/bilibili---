@@ -1919,6 +1919,19 @@
         });
     }
 
+    // ==================== 跨标签页同步 ====================
+    function _setupCrossTabSync() {
+        if (typeof GM_addValueChangeListener === 'function') {
+            GM_addValueChangeListener(STORAGE_KEY, (newVal, oldVal, remote) => {
+                if (remote) {
+                    _notesLoaded = false;
+                    _notesCache = null;
+                    refreshAll();
+                }
+            });
+        }
+    }
+
     // ==================== 初始化 ====================
     function init() {
         if (typeof GM_registerMenuCommand !== 'undefined') {
@@ -1932,6 +1945,8 @@
                 }
             });
         }
+
+        _setupCrossTabSync();
 
         migrateFromLocalStorage();
 
